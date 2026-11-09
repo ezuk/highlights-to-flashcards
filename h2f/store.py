@@ -307,6 +307,10 @@ MIGRATIONS = [
         "CREATE INDEX readwise_highlights_by_book ON readwise_highlights(book_id)",
         "ALTER TABLE save_batches ADD COLUMN note_ids_json TEXT",
     ),
+    (
+        "ALTER TABLE collection_notes ADD COLUMN quote TEXT NOT NULL DEFAULT ''",
+        "CREATE INDEX collection_notes_by_deck ON collection_notes(deck)",
+    ),
 ]
 
 _CLOZE = re.compile(r"\{\{c\d+::")
@@ -1125,14 +1129,19 @@ class Store:
     def collection_notes(self):
         return [dict(r) for r in self._all("SELECT * FROM collection_notes ORDER BY nid")]
 
+    def deck_quotes(self, deck):
+        """Highlights quoted on the cards in decks with this last name part."""
+        return {r["quote"] for r in self._all("SELECT quote FROM collection_notes WHERE deck = ? AND quote != ''",
+                                              (deck,))}
+
     def replace_collection_notes(self, notes, read_at):
         columns = ("nid", "deck", "front", "back", "raw_front", "raw_back", "notetype", "fields", "cards", "usn",
-                   "card_usn", "reps", "lapses", "ivl", "suspended", "tags")
+                   "card_usn", "reps", "lapses", "ivl", "suspended", "tags", "quote")
         statement = f"INSERT INTO collection_notes({', '.join(columns)}) VALUES ({_marks(columns)})"
         with self.transaction():
             self._write("DELETE FROM collection_notes")
             for note in notes:
-                values = {"suspended": 0, "tags": "", **note}
+                values = {"suspended": 0, "tags": "", "quote": "", **note}
                 self._write(statement, [values.get(column) for column in columns])
             self.set_setting("collection_read_at", read_at)
 

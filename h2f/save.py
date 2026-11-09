@@ -646,10 +646,25 @@ def save(store, collection, book, highlights, options, mark_connection_sources=T
     return batch_result(store.get_batch(batch_id))
 
 
-def reviewed_keys(store, book):
-    """Reviewed status for display: highlights whose save is in the collection, or under way."""
+def _quoted_keys(store, book, highlights):
+    """Keys of highlights quoted on a card in the book's deck, wherever the card was made."""
+    stored = None
+    if highlights is None or not book.get("title"):
+        stored = store.get_book(_book_id(book)) or {}
+    if highlights is None:
+        highlights = book.get("highlights") or (book.get("data") or stored.get("data") or {}).get("highlights") or []
+    title = book.get("title") or (stored or {}).get("title")
+    quotes = store.deck_quotes(collection_module.book_deck(_text(title))) if title else set()
+    if not quotes:
+        return set()
+    return {h["key"] for h in highlights if h.get("key") and " ".join(_text(h.get("text")).split()) in quotes}
+
+
+def reviewed_keys(store, book, highlights=None):
+    """Reviewed status for display: highlights with a card in the book's deck, or whose save is in the
+    collection or under way. `highlights` are dicts with key and text, the book's own when left out."""
     book_id = _book_id(book)
-    return store.reviewed_keys(book_id) | _in_flight_keys(store, book_id)
+    return store.reviewed_keys(book_id) | _in_flight_keys(store, book_id) | _quoted_keys(store, book, highlights)
 
 
 def card_history(store, book_id):

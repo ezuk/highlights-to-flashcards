@@ -91,8 +91,9 @@ def list_books(store, calibre_books, links):
     for rw_book in store.readwise_books():
         record = _record(rw_book, linked(rw_book, calibre_books, links), rw_book.get("last_highlight"))
         book_id = book_id_for(record["device_path"])
-        keys = {highlight_key(h["id"]) for h in store.readwise_highlights(rw_book["id"])}
-        reviewed = len(keys & save_module.reviewed_keys(store, {"id": book_id, **record}))
+        texts = [{"key": highlight_key(h["id"]), "text": h["text"]} for h in store.readwise_highlights(rw_book["id"])]
+        keys = {h["key"] for h in texts}
+        reviewed = len(keys & save_module.reviewed_keys(store, {"id": book_id, **record}, texts))
         record["counts"] = {"total": len(keys), "pending": len(keys) - reviewed, "reviewed": reviewed}
         rows.append(record)
     return rows
@@ -152,7 +153,8 @@ def load_book(store, book_id, rw_book, match):
             book = epub.open_epub(record["epub"])
         except epub.EpubError:
             record["error"] = EPUB_UNREADABLE
-    reviewed = save_module.reviewed_keys(store, {"id": book_id, **record})
+    reviewed = save_module.reviewed_keys(store, {"id": book_id, **record},
+                                         [{"key": highlight_key(row["id"]), "text": row["text"]} for row in rows])
     highlights = []
     for row in rows:
         key = highlight_key(row["id"])

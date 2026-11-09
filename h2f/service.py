@@ -375,7 +375,7 @@ class _Context:
         self.book = book
         self.settings = store.get_settings()
         rows = service._highlights(book)
-        self.reviewed = save.reviewed_keys(store, book)
+        self.reviewed = save.reviewed_keys(store, book, rows)
         self.highlights = [{**h, "status": "reviewed" if h["key"] in self.reviewed else "pending"} for h in rows]
         self.by_hid = {h["hid"]: h for h in self.highlights}
         self.states = store.list_highlights(book_id)
@@ -910,7 +910,7 @@ class Service:
             total, reviewed = stored["total"], stored.get("reviewed", 0)
             return {"all": total, "todo": total - reviewed, "rev": reviewed, "reviewed": reviewed, "skipped": 0}
         keys = {h["key"] for h in highlights or [] if h.get("key") and h.get("text")}
-        reviewed = save.reviewed_keys(self._store, book) & keys
+        reviewed = save.reviewed_keys(self._store, book, highlights or []) & keys
         skipped = {
             state["key"] for state in self._store.list_highlights(book["id"]).values() if state["skipped"]
         } & (keys - reviewed)

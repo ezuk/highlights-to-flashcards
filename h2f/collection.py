@@ -19,6 +19,8 @@ DEFAULT_DECK = "Highlights"
 CONTEXT_FIELDS = ("Quote", "Book", "Author", "Chapter", "Page", "File", "Position")
 EDITABLE_NOTETYPES = ("Basic", "Cloze", PBANKI_NOTETYPE, PBANKI_NOTETYPE + CLOZE_SUFFIX,
                       OWN_NOTETYPE, OWN_NOTETYPE + CLOZE_SUFFIX)
+# Note types whose third field is the highlight quoted
+QUOTED_NOTETYPES = (PBANKI_NOTETYPE, PBANKI_NOTETYPE + CLOZE_SUFFIX, OWN_NOTETYPE, OWN_NOTETYPE + CLOZE_SUFFIX)
 _CLOZE = re.compile(r"\{\{c\d+::")
 
 NOT_LOGGED_IN = "Log in to AnkiWeb in Settings first."
@@ -40,8 +42,13 @@ def text_to_html(text):
     return escape_html((text or "").strip()).replace("\n", "<br>")
 
 
+def book_deck(title):
+    """The last part of a book's deck name."""
+    return " ".join((title or "").replace("::", ":").split())
+
+
 def deck_name(parent, title):
-    title = " ".join((title or "").replace("::", ":").split())
+    title = book_deck(title)
     return f"{parent}::{title}" if title else parent
 
 
@@ -163,8 +170,11 @@ class Collection:
             front = changes.plain(parts[0])
             if front:
                 raw_back = parts[1] if len(parts) > 1 else ""
+                notetype = types.get(mid)
+                quoted = notetype in QUOTED_NOTETYPES and len(parts) > 2
                 notes.append({"nid": nid, "deck": decks.get(deck, ""), "front": front, "back": changes.plain(raw_back),
-                              "raw_front": parts[0], "raw_back": raw_back, "notetype": types.get(mid),
+                              "raw_front": parts[0], "raw_back": raw_back, "notetype": notetype,
+                              "quote": changes.plain(parts[2]) if quoted else "",
                               "fields": len(parts), "cards": cards, "usn": usn, "card_usn": card_usn, "reps": reps,
                               "lapses": lapses, "ivl": max(ivl, 0), "suspended": suspended, "tags": tags.strip()})
         return notes, graves

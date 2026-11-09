@@ -85,6 +85,21 @@ class FlowTest(TempHome):
         self.assertEqual(file, "Pride and Prejudice - Jane Austen.epub")
         self.assertEqual(usn, 0)
 
+    def test_cards_made_elsewhere_count_their_highlights_as_reviewed(self):
+        self.connect()
+        quote = ("It is a truth universally acknowledged, that a single man in possession of a good\n"
+                 "fortune must be in want of a wife.")
+        card = {"front": "Q?", "back": "A", "quote": quote, "book": "Pride and Prejudice"}
+        other = {**card, "quote": "Do let the portraits of your uncle and aunt Philips be placed in the gallery "
+                                  "at Pemberley.", "book": "Another book"}
+        self.service.collection.add_cards([card, other], collection.OWN_NOTETYPE, "Reader")
+        self.service.clashes.refresh(self.service.collection)
+        rows = {row["title"]: row for row in self.service.books()["books"]}
+        self.assertEqual(rows["Pride and Prejudice"]["counts"]["reviewed"], 1)
+        self.assertEqual(rows["Pride and Prejudice"]["hl"], "2 to do of 3")
+        book = self.service.open_book(rows["Pride and Prejudice"]["id"])
+        self.assertEqual([h["status"] for h in book["highlights"]].count("reviewed"), 1)
+
     def test_save_without_ankiweb_waits_for_the_next_sync(self):
         self.service.readwise_token(fakes.TOKEN)
         self.wait_for_sync()
