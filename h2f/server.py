@@ -147,6 +147,7 @@ _SETTINGS_FIELDS = {
     "assistants": dict, "model": str, "meta_model": str, "companion_send": str,
     "sees": str, "kind": str, "count": int, "last_prompt": str, "suggest_connections": bool, "suggest_ideas": bool,
     "mark_connection_sources": bool, "notetype": str, "deck_parent": str, "calibre_library": str,
+    "companion_dir": str,
 }
 
 
@@ -221,6 +222,7 @@ _ROUTES = (
      lambda s, r: s.ankiweb_login(r.body.get("email"), r.body.get("password"))),
     ("POST", "/api/sources/ankiweb/logout", {}, lambda s, r: s.ankiweb_logout()),
     ("POST", "/api/sources/calibre/choose-folder", {}, lambda s, r: s.choose_calibre_library()),
+    ("POST", "/api/companion/choose-folder", {}, lambda s, r: s.choose_companion_folder()),
     ("GET", "/api/calibre/search", {}, lambda s, r: s.calibre_search(r.query.get("q", ""))),
     ("POST", "/api/books/*/link", {"calibre_id": int}, lambda s, r: s.link_book(*r.args, r.body.get("calibre_id"))),
     ("PATCH", "/api/settings", _SETTINGS_FIELDS, lambda s, r: s.update_settings(r.body)),
@@ -241,6 +243,8 @@ _ROUTES = (
     ("GET", "/api/prompts/*", {}, lambda s, r: s.prompt(*r.args)),
     ("POST", "/api/prompts/open", _PROMPT_FILE_FIELDS, _call_prompt_file("open_prompt")),
     ("POST", "/api/prompts/reveal", _PROMPT_FILE_FIELDS, _call_prompt_file("reveal_prompt")),
+    ("POST", "/api/prompts/open-folder", {}, lambda s, r: s.open_prompts_folder()),
+    ("POST", "/api/prompts/reload", {}, lambda s, r: s.reload_prompts()),
     ("POST", "/api/books/*/companion/open", {}, lambda s, r: s.companion_open(*r.args)),
     ("POST", "/api/books/*/companion/create", {}, lambda s, r: s.companion_create(*r.args)),
     ("POST", "/api/books/*/companion/copy", {}, lambda s, r: s.companion_copy(*r.args)),

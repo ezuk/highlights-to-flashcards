@@ -77,7 +77,7 @@ export function PromptDrawer() {
       <div class="path" style="font-size:13px">${file.display}</div>
       <${PathButtons} key=${file.display} name=${name} file=${file} reload=${reload} />
     </div>`}
-    ${file && file.undone_on_start && html`<div class="setn">The app puts Standard back each time it starts, so edits here are undone. To make your own, copy the Standard folder and rename the copy.</div>`}
+    ${data && data.name === "Standard" && html`<div class="setn">Your edits to Standard are kept. Delete a file here to get the app's version back on the next start.</div>`}
     ${data && html`<div class="running"><${Pulse} />Watching for changes. Reloaded ${reloadAgo} s ago.</div>`}
     ${!data && !failure && html`<${Running}>Reading the prompt<//>`}
     ${failure && html`<div class="setn">${failure}</div>`}

@@ -1,12 +1,14 @@
 """AI prompts kept as Markdown files, one folder per prompt.
 
     <home>/prompts/
-        Standard/       rewritten from the repo on every start
+        Standard/       filled from the repo; files you edit are kept
         My prompt/      your own prompt; kinds without a file use Standard's
 
 Files are re-read for every AI call, so edits apply at once.
 """
 
+import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -18,6 +20,7 @@ from . import paths
 
 STANDARD = "Standard"
 COPIED_FILE = ".copied"
+STANDARD_MARKS = ".standard.json"
 
 # The first file name is the one written for Standard
 KINDS = [
@@ -44,7 +47,9 @@ A folder can hold these Markdown files:
 
 A missing or blank file means that kind of card uses the Standard prompt.
 
-To make your own prompt, copy the Standard folder, rename the copy and edit its files. the app rewrites Standard every time it starts, so edits made there are undone.
+You can edit Standard's files directly and your edits are kept. The app only updates a Standard file you haven't changed. Delete a Standard file to get the app's version back on the next start.
+
+To keep a separate prompt, copy the Standard folder, rename the copy and edit its files.
 
 The app adds the reply format itself, so the files only need the instructions. Edits apply to the next AI request.
 """
@@ -124,13 +129,41 @@ def builtin():
     return read(_repo_standard())
 
 
-def seed():
-    """Rewrites Standard from the repo and copies the repo's other prompts when absent."""
-    root = paths.prompts_dir()
+def _digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def _seed_standard(root):
+    # Writes each repo file unless the user changed the copy last written
     standard = root / STANDARD
     standard.mkdir(parents=True, exist_ok=True)
+    marks_path = root / STANDARD_MARKS
+    try:
+        written = json.loads(marks_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        written = {}
+    if not isinstance(written, dict):
+        written = {}
     for path in sorted(_repo_standard().glob("*.md")):
-        (standard / path.name).write_bytes(path.read_bytes())
+        shipped = path.read_bytes()
+        target = standard / path.name
+        try:
+            current = target.read_bytes()
+        except OSError:
+            current = None
+        if current is None or _digest(current) == written.get(path.name):
+            target.write_bytes(shipped)
+            written[path.name] = _digest(shipped)
+        elif current == shipped:
+            written[path.name] = _digest(shipped)
+    marks_path.write_text(json.dumps(written, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def seed():
+    """Fills Standard from the repo, keeping files the user edited, and copies the repo's
+    other prompts when absent."""
+    root = paths.prompts_dir()
+    _seed_standard(root)
     (root / "README.md").write_text(README_TEXT, encoding="utf-8")
     if not _repo_prompts().is_dir():
         return

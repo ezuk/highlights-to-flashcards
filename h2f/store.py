@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     "deck_parent": "",
     "book_links": {},
     "calibre_library": "",
+    "companion_dir": "",
 }
 
 # Index i takes the database from version i to version i + 1

@@ -277,6 +277,7 @@ export const saveReadwiseToken = (token) => api.post("/api/sources/readwise", { 
 export const ankiwebLogin = (email, password) => api.post("/api/sources/ankiweb/login", { email, password }).then(withSources);
 export const ankiwebLogout = () => api.post("/api/sources/ankiweb/logout").then(withSources);
 export const chooseCalibreLibrary = () => api.post("/api/sources/calibre/choose-folder").then(withSources);
+export const chooseCompanionFolder = () => api.post("/api/companion/choose-folder").then((answer) => { quietly(loadState()); return answer; });
 
 // Debounced saves
 

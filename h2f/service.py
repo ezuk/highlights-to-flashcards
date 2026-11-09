@@ -84,7 +84,7 @@ _SUGGEST_KEYS = ("count", "kind", "model", "prompt", "sees", "companion", "hint"
 _SETTING_KEYS = (
     "assistants", "model", "meta_model", "companion_send", "sees", "kind", "count",
     "last_prompt", "suggest_connections", "suggest_ideas", "mark_connection_sources",
-    "notetype", "deck_parent", "calibre_library", "book_links",
+    "notetype", "deck_parent", "calibre_library", "companion_dir", "book_links",
 )
 
 
@@ -535,6 +535,10 @@ class Service:
     def _calibre_library(self):
         return self._store.get_settings().get("calibre_library") or calibre.default_library()
 
+    def _companion_dir(self):
+        stored = self._store.get_settings().get("companion_dir")
+        return Path(stored) if stored else paths.companion_command_dir()
+
     def _calibre_books(self, fresh=False):
         library = self._calibre_library()
         now = time.monotonic()
@@ -757,7 +761,7 @@ class Service:
         settings = self._settle_models()
         enabled = settings["assistants"]
         current = settings.get("current_book")
-        skill = companion.skill_status()
+        skill = companion.skill_status(self._companion_dir())
         return {
             "sources": self._sources_view(),
             "reader": self._reader_small(),
@@ -1812,8 +1816,8 @@ class Service:
         found = found if found is not None else self._find_companion(book)
         stage = self._creation_stage(book_path)
         have = found["found"] and stage != "found"
-        preview = companion.create_preview(book_path or (book["title"] + ".epub"))
-        skill = companion.skill_status()
+        preview = companion.create_preview(book_path or (book["title"] + ".epub"), self._companion_dir())
+        skill = companion.skill_status(self._companion_dir())
         if have:
             status = f"Book Companion {found['label']}"
         else:
@@ -2573,6 +2577,16 @@ class Service:
         self._calibre_books(fresh=True)
         return {"library": picked, "sources": self._sources_view()}
 
+    @_route
+    def choose_companion_folder(self):
+        """Asks the Mac for the folder with the Book Companion skill, on the button only, and stores it.
+        `folder` is None when the dialog was cancelled."""
+        picked = _pick_folder()
+        if not picked:
+            return {"folder": None}
+        self.update_settings({"companion_dir": picked})
+        return {"folder": picked}
+
     def _calibre_view(self, book):
         """Which Calibre book this one reads from, and whether the user picked it."""
         data = book["data"]
@@ -2647,12 +2661,13 @@ class Service:
                 if not isinstance(value, str) or "\x1f" in value or len(value) > 200:
                     raise ServiceError(400, "That name can't be used.")
                 new[key] = " ".join(value.split())
-            elif key == "calibre_library":
+            elif key in ("calibre_library", "companion_dir"):
                 if not isinstance(value, str):
                     raise ServiceError(400, "That folder can't be used.")
                 expanded = os.path.expanduser(value.strip())
                 if expanded and not os.path.isabs(expanded):
-                    raise ServiceError(400, "The Calibre library has to be a full path.")
+                    what = "Calibre library" if key == "calibre_library" else "Book Companion folder"
+                    raise ServiceError(400, f"The {what} has to be a full path.")
                 new[key] = expanded.rstrip("/")
             elif key == "book_links":
                 if not isinstance(value, dict) or not all(isinstance(v, int) for v in value.values()):
@@ -2721,7 +2736,6 @@ class Service:
                 "path": str(row["path"]),
                 "display": _tilde(row["own_path"]),
                 "text": row["text"],
-                "undone_on_start": name == prompts.STANDARD,
             })
         return {
             "name": name,
@@ -2737,8 +2751,7 @@ class Service:
 
     @_route
     def open_prompt(self, name, file_name):
-        """Opens the file in the chosen folder. One taken from Standard gets its own copy first,
-        because edits to Standard are undone on the next start."""
+        """Opens the file in the chosen folder. One taken from Standard gets its own copy first."""
         try:
             row = prompts.make_own(name, file_name)
         except OSError:
@@ -2751,6 +2764,26 @@ class Service:
         row = prompts.read_one(name, file_name)
         own = Path(row["own_path"])
         return self._launch_prompt(row, str(own if own.exists() else own.parent), "-R")
+
+    @_route
+    def open_prompts_folder(self):
+        """Shows the prompts folder in Finder, creating it first when missing."""
+        root = paths.prompts_dir()
+        if not (root / prompts.STANDARD).is_dir():
+            prompts.seed()
+        if not self._launch(["open", str(root)]):
+            raise ServiceError(500, "The prompts folder couldn't be opened.")
+        return {"opened": _tilde(root)}
+
+    @_route
+    def reload_prompts(self):
+        """Rescans the prompts folder and tells the page to refresh its prompt lists."""
+        if not (paths.prompts_dir() / prompts.STANDARD).is_dir():
+            prompts.seed()
+        self._prompt_watcher.check()
+        self._prompt_watcher.last_reload = time.time()
+        self._hub.publish({"topic": PROMPTS, "type": "changed", "paths": []})
+        return self._prompts_view()
 
     # Book Companion
 
@@ -2812,7 +2845,7 @@ class Service:
                 raise ServiceError(409, "This Book Companion is already being created.")
             if stage == "found":
                 raise ServiceError(409, "This Book Companion is ready. Save it beside the book or keep it here.")
-            companion.create(self._book_path(book))
+            companion.create(self._book_path(book), self._companion_dir())
         with self._creations_lock:
             self._creations[book_id] = {"path": self._book_path(book), "stage": "running"}
         self._publish_book(book_id, "companion", stage="running")

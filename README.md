@@ -30,6 +30,8 @@ cd highlights-to-flashcards
 ./run.sh
 ```
 
+To start it from Spotlight, Alfred or the Dock instead, run `macos/build.sh` once. It puts a `Highlights to Flashcards` app in `~/Applications` that runs this folder's copy. It shows the app in its own window. Closing the window or quitting stops the server, and View > Open in Browser opens the same page in your browser. Its output goes to `~/Library/Logs/Highlights to Flashcards.log`. Run the script again if you move the folder.
+
 It opens in your browser. Paste a Readwise access token (from readwise.io/access_token), log in to AnkiWeb, and check it found your Calibre library. Then pick a book.
 
 ## How it treats your data
@@ -48,11 +50,11 @@ If your collection already has the `pbAnki KOReader` note type from the pbAnki K
 
 ## Prompts
 
-The instructions the AI follows are plain Markdown files in `prompts/Standard`. To write your own, copy that folder next to it, rename the copy, and pick it in the app. The app puts `Standard` back each time it starts.
+The instructions the AI follows are plain Markdown files in `prompts/Standard`. To write your own, copy that folder next to it, rename the copy, and pick it in the app. You can also edit `Standard` directly: the app only updates a Standard file you haven't changed, and deleting one brings the app's version back on the next start.
 
 ## Book Companions
 
-A Book Companion is a long Markdown file of notes on a whole book: each chapter's key points, its vocabulary, and what later research says. With one, the AI can find key ideas you didn't highlight. The app looks for `<ePub name>.companion.md` beside the ePub in Calibre. It can also create one by running a Claude Code `book-companion` skill, if you have one.
+A Book Companion is a long Markdown file of notes on a whole book: each chapter's key points, its vocabulary, and what later research says. With one, the AI can find key ideas you didn't highlight. The app looks for `<ePub name>.companion.md` beside the ePub in Calibre. It can also create one by running a Claude Code `book-companion` skill, if you have one. Choose the folder that holds the skill in Settings, under Book Companion.
 
 ## Development
 

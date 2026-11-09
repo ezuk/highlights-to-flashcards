@@ -531,13 +531,12 @@ def notes_panel(text, chapter, percent=None):
 # Creating one
 
 
-def skill_status():
-    """Whether Create can run: {ok, path, problem}, with `problem` a plain sentence."""
-    folder = paths.companion_command_dir()
+def skill_status(folder):
+    """Whether Create can run in `folder`: {ok, path, problem}, with `problem` a plain sentence."""
+    folder = Path(folder) if folder else None
     status = {"ok": False, "path": str(folder) if folder else None, "problem": None}
     if folder is None:
-        status["problem"] = ("Creating a Companion needs a folder with a Claude Code `book-companion` skill, "
-                             "set as H2F_COMPANION_DIR.")
+        status["problem"] = "Creating a Companion needs a folder with a Claude Code `book-companion` skill. Choose it above."
     elif not folder.is_dir():
         status["problem"] = f"The Companion folder isn't at {folder}."
     elif not (folder / _SKILL_FILE).is_file():
@@ -575,10 +574,9 @@ def _home_short(path):
     return "~" + text[len(home):] if text.startswith(home + "/") else text
 
 
-def create_preview(book_path):
+def create_preview(book_path, folder):
     """What the Create drawer shows: {command, watching}."""
     prompt = "/book-companion " + _quoted_for_prompt(Path(book_path).name)
-    folder = paths.companion_command_dir()
     command = ("cd " + _home_short(folder) + "\n" if folder else "") + "claude " + _double_quoted(prompt)
     return {"command": command, "watching": file_name(book_path)}
 
@@ -587,10 +585,10 @@ def _double_quoted(text):
     return '"' + re.sub(r'([\\"$`])', r"\\\1", text) + '"'
 
 
-def script_text(epub_path, assistant_dir=None, claude=None):
+def script_text(epub_path, assistant_dir, claude=None):
     """The .command script: cd to the assistant folder and run the skill on the local copy.
     It removes itself when the session ends, which is what stops the Create counting as running."""
-    folder = assistant_dir or paths.companion_command_dir()
+    folder = assistant_dir
     binary = claude or ai.find_binary("claude") or "claude"
     script = Path(epub_path).with_name(_SCRIPT_NAME)
     return ("#!/bin/bash\n"
@@ -614,10 +612,10 @@ def _launch_terminal(script):
 NO_BOOK = "This book's ePub isn't in the Calibre library, so there's nothing to read."
 
 
-def create(book_path):
+def create(book_path, assistant_dir):
     """Copies the book to the work folder, writes the .command script there and opens it in Terminal.
     Only ever runs on the user's click. Returns {work_dir, epub, script, watching}."""
-    status = skill_status()
+    status = skill_status(assistant_dir)
     if not status["ok"]:
         raise CompanionError(status["problem"])
     source = Path(book_path) if book_path else None
@@ -635,7 +633,7 @@ def create(book_path):
     except OSError as e:
         raise CompanionError(f"The book could not be copied: {e.strerror or e}") from e
     script = folder / _SCRIPT_NAME
-    script.write_text(script_text(epub), encoding="utf-8")
+    script.write_text(script_text(epub, assistant_dir), encoding="utf-8")
     script.chmod(0o755)
     try:
         _launch_terminal(script)

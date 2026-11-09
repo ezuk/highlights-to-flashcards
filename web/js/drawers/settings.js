@@ -3,7 +3,7 @@
 import { html, CompanionCopy, Drawer, Field, Select } from "../ui.js";
 import { useState } from "../../vendor/preact-htm.js";
 import { api } from "../api.js";
-import { useStore, saveSettings, update, showError, clearError } from "../store.js";
+import { useStore, saveSettings, update, showError, clearError, chooseCompanionFolder } from "../store.js";
 import { Sources } from "../screens/sources.js";
 
 const SettingSelect = ({ label, value, options, name }) => html`<div class="setrow">
@@ -67,6 +67,45 @@ function BookMatch({ book }) {
   </div>`;
 }
 
+function ChooseCompanionFolder({ chosen }) {
+  const [busy, setBusy] = useState(false);
+  const choose = async () => {
+    clearError();
+    setBusy(true);
+    try {
+      await chooseCompanionFolder();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<button class="btn" onClick=${choose} disabled=${busy}>${chosen ? "Choose another folder" : "Choose folder"}</button>`;
+}
+
+function PromptsFolderButtons() {
+  const [busy, setBusy] = useState(null);
+  const [note, setNote] = useState("");
+  const run = async (action) => {
+    clearError();
+    setBusy(action);
+    setNote("");
+    try {
+      const answer = await api.post(`/api/prompts/${action}`);
+      if (action === "reload") setNote(`Reloaded. ${answer.names.length} prompt${answer.names.length === 1 ? "" : "s"} found.`);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return html`<div class="rowg">
+    <button class="btn" onClick=${() => run("open-folder")} disabled=${!!busy}>Open in Finder</button>
+    <button class="btn" onClick=${() => run("reload")} disabled=${!!busy}>${busy === "reload" ? "Reloading…" : "Reload prompts"}</button>
+  </div>
+  ${note && html`<div class="setn">${note}</div>`}`;
+}
+
 export function SettingsDrawer() {
   const { state, book, route } = useStore();
   const { settings, files, skill } = state;
@@ -104,14 +143,16 @@ export function SettingsDrawer() {
       <div class="setn">Overview + chapter keeps each request small. Connections and key ideas always read the whole Companion.</div>
       <div class="fl">
         <div class="lab">Folder with the Book Companion skill</div>
-        <input class="in" value=${files.assistant} readOnly />
+        <${Field} tag="input" commit class="in" value=${files.assistant} placeholder="~/path/to/folder" onSave=${(companion_dir) => saveSettings({ companion_dir })} />
       </div>
+      <div class="rowg"><${ChooseCompanionFolder} chosen=${!!files.assistant} /></div>
       ${skill.problem && html`<div class="setn">${skill.problem}</div>`}
       <div class="setn">Creating a Companion always uses Claude Code, because the skill runs there.</div>
     </div>
     <div class="setg">
       <div class="setgt">Files</div>
       <div class="fl"><div class="lab">Prompts folder</div><div class="path">${files.prompts}</div></div>
+      <${PromptsFolderButtons} />
       <div class="fl"><div class="lab">Backup and drafts</div><div class="path">${files.db}</div></div>
       <div class="fl"><div class="lab">Anki collection copy</div><div class="path">${files.collection}</div></div>
     </div>

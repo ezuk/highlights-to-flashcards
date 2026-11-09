@@ -1,5 +1,6 @@
 """The whole path, through the app's service: connect, pick a book, write a card, save and sync."""
 
+import shutil
 import sqlite3
 import unittest
 
@@ -34,6 +35,23 @@ class FlowTest(TempHome):
         self.wait_for_sync()
         self.service.ankiweb_login("tester@example.com", "test-password")
         self.wait_for_sync()
+
+    def test_companion_folder_is_a_setting(self):
+        self.assertFalse(self.service.state()["skill"]["ok"])
+        folder = self.tmp / "assistant"
+        (folder / ".claude" / "skills" / "book-companion").mkdir(parents=True)
+        (folder / ".claude" / "skills" / "book-companion" / "SKILL.md").write_text("skill", encoding="utf-8")
+        state = self.service.update_settings({"companion_dir": str(folder) + "/"})
+        self.assertTrue(state["skill"]["ok"])
+        self.assertEqual(state["settings"]["companion_dir"], str(folder))
+        reopened = Service(store=Store(), sync_on_start=False)
+        try:
+            self.assertTrue(reopened.state()["skill"]["ok"])
+        finally:
+            reopened.stop(wait=1)
+            reopened.collection.close()
+        with self.assertRaises(ServiceError):
+            self.service.update_settings({"companion_dir": "relative/path"})
 
     def test_sources_start_unconnected(self):
         sources = self.service.state()["sources"]
@@ -123,6 +141,34 @@ class FlowTest(TempHome):
         self.assertEqual(view["calibre"]["id"], 1)
         self.assertTrue(view["calibre"]["picked"])
         self.assertEqual(self.service.link_book(book_id, None)["calibre"]["id"], None)
+
+    def test_prompts_folder_opens_and_reloads(self):
+        launched = []
+        self.service._launch = lambda args: launched.append(args) or True
+        shutil.rmtree(paths.prompts_dir())
+        self.assertEqual(self.service.open_prompts_folder()["opened"].split("/")[-1], "prompts")
+        self.assertEqual(launched, [["open", str(paths.prompts_dir())]])
+        self.assertTrue((paths.prompts_dir() / "Standard" / "questions.md").is_file())
+        mine = paths.prompts_dir() / "Mine"
+        mine.mkdir()
+        (mine / "cloze.md").write_text("Be brief.", encoding="utf-8")
+        self.assertIn("Mine", self.service.reload_prompts()["names"])
+
+    def test_standard_keeps_edits_and_updates_untouched_files(self):
+        from unittest import mock
+        from h2f import prompts
+        standard = paths.prompts_dir() / "Standard"
+        (standard / "cloze.md").write_text("My cloze rules.", encoding="utf-8")
+        (standard / "ideas.md").unlink()
+        repo = paths.prompts_dir().parent / "repo-prompts"
+        shutil.copytree(prompts._repo_prompts(), repo)
+        (repo / "Standard" / "questions.md").write_text("Newer questions.", encoding="utf-8")
+        (repo / "Standard" / "cloze.md").write_text("Newer cloze.", encoding="utf-8")
+        with mock.patch.object(prompts, "_repo_prompts", lambda: repo):
+            prompts.seed()
+        self.assertEqual((standard / "cloze.md").read_text(encoding="utf-8"), "My cloze rules.")
+        self.assertEqual((standard / "questions.md").read_text(encoding="utf-8"), "Newer questions.")
+        self.assertTrue((standard / "ideas.md").is_file())
 
 
 if __name__ == "__main__":
