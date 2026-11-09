@@ -1,33 +1,9 @@
 """Card checks, surfaced as `warn` on a card."""
 
-import re
-
 from . import cardgen
-
-_POINTING_RE = re.compile(r"(?<![\w-])(this|that|these|those|such|it)(?![\w-])", re.I)
 
 DUPLICATE_OVERLAP = 0.7
 DUPLICATE_WARNING = "Asks nearly the same thing as another card."
-
-
-def pointing_word(front):
-    """The first word in `front` that points outside the card, lowercased, or None."""
-    for match in _POINTING_RE.finditer(front or ""):
-        # IT in capitals is the acronym
-        if match.group(1) != "IT":
-            return match.group(1).lower()
-    return None
-
-
-def standalone_warning(card):
-    """Warning for a card that leans on a pointing word. Cloze cards skip this check,
-    because the prompt allows pointing words when the back names them."""
-    if card.get("kind") == "cloze" or cardgen.is_cloze(card.get("front")):
-        return None
-    word = pointing_word(card.get("front"))
-    if not word:
-        return None
-    return f'"{word}" points at nothing when you see the card alone, months from now.'
 
 
 def overlap(first, second):
@@ -71,5 +47,5 @@ def check_cards(cards):
     duplicates = {live[i] for i in duplicate_indexes([cards[i] for i in live])}
     warnings = [None] * len(cards)
     for i in live:
-        warnings[i] = standalone_warning(cards[i]) or (DUPLICATE_WARNING if i in duplicates else None)
+        warnings[i] = DUPLICATE_WARNING if i in duplicates else None
     return warnings

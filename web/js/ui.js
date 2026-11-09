@@ -240,7 +240,7 @@ export function Field({ value, onSave, path, field, commit = false, tag = "texta
   };
 
   const Tag = tag;
-  return html`<${Tag} ...${rest} ref=${ref} value=${shown} onInput=${onInput} onBlur=${onBlur} onKeyDown=${onKeyDown} />`;
+  return html`<${Tag} autocomplete="off" autocorrect="off" ...${rest} ref=${ref} value=${shown} onInput=${onInput} onBlur=${onBlur} onKeyDown=${onKeyDown} />`;
 }
 
 // While a screen waits on the server.

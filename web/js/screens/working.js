@@ -158,7 +158,9 @@ function RunProgress({ book }) {
   </div>`;
 }
 
-const inFilter = (h, filter) => (filter === "todo" ? h.status !== "reviewed" && !h.skipped : filter === "rev" ? h.status === "reviewed" || h.skipped : true);
+const isDone = (h) => h.status === "reviewed" || h.skipped || h.done;
+
+const inFilter = (h, filter) => (filter === "todo" ? !isDone(h) : filter === "rev" ? isDone(h) : true);
 
 const FILTER_ORDER = ["todo", "rev", "all"];
 
@@ -243,7 +245,9 @@ function HighlightNav({ book, selected }) {
   const query = searchQuery(ui, book);
   const filters = FILTER_ORDER.map((id) => book.filters.find((item) => item.id === id)).filter(Boolean);
   const groups = [];
-  for (const h of book.highlights.filter((item) => inView(item, ui, book))) {
+  // The open highlight stays listed after it's finished, until you move on
+  const listed = (item) => (item.id === selected ? !query || searchText(item).includes(query) : inView(item, ui, book));
+  for (const h of book.highlights.filter(listed)) {
     // Only neighbours share a heading, so the list keeps the order of Next, J and "3 of 5"
     let group = groups[groups.length - 1];
     if (!group || group.name !== h.chapter_name) groups.push((group = { name: h.chapter_name, items: [] }));
@@ -270,7 +274,7 @@ function HighlightNav({ book, selected }) {
       ${!groups.length && html`<div class="empty" style="margin:14px">${query ? "No matches." : EMPTY_FILTER[filter]}</div>`}
       ${groups.map((group, i) => html`
         <div key=${`c-${i}-${group.name}`} class="chap">${group.name}</div>
-        ${group.items.map((h) => html`<button key=${h.id} class=${`hl${h.id === selected ? " on" : ""}${h.state === "rev" || h.state === "skip" ? " rev" : ""}`} onClick=${() => go(here("highlights", h.id))}>
+        ${group.items.map((h) => html`<button key=${h.id} class=${`hl${h.id === selected ? " on" : ""}${h.state === "rev" || h.state === "skip" || h.state === "done" ? " rev" : ""}`} onClick=${() => go(here("highlights", h.id))}>
           <span class="hlg">${h.glyph}</span><span class="hls">${h.mark}</span>
           <span class="hlm">${h.page != null && html`<span>p. ${h.page}</span>`}<span>${h.meta}</span></span>
         </button>`)}
@@ -297,6 +301,12 @@ function toggleSkip(book, h) {
   return mutate("POST", `/api/books/${book.id}/highlights/${h.id}/skip`, { skipped: !h.skipped });
 }
 
+// Skips the highlight and opens the next one in the list.
+async function skipAndAdvance(book, h) {
+  const next = neighbour(book, store.ui, h, 1);
+  if ((await toggleSkip(book, h)) && next) go(here("highlights", next.id));
+}
+
 function HighlightMain({ book, highlight: h }) {
   const { ui } = useStore();
   const previous = neighbour(book, ui, h, -1);
@@ -305,7 +315,7 @@ function HighlightMain({ book, highlight: h }) {
   const buttons = () => html`<div class="rowg" style="justify-content:space-between">
     <button class="btn" onClick=${() => open(previous)} disabled=${!previous}>‹ Previous highlight</button>
     <span class="rowg">
-      ${h.canSkip && html`<button class="btn" onClick=${() => toggleSkip(book, h)}>Skip</button>`}
+      ${h.canSkip && html`<button class="btn" onClick=${() => skipAndAdvance(book, h)}>Skip</button>`}
       <button class="btn" onClick=${() => open(next)} disabled=${!next}>Next highlight ›</button>
     </span>
   </div>`;
@@ -321,7 +331,7 @@ function HighlightMain({ book, highlight: h }) {
     <${Passage} highlight=${h} book=${book} />
     ${h.later && html`<div class="later"><span class="laterk">Book Companion: later research</span><span>${h.later}</span></div>`}
     ${book.companion.have && h.comp && h.comp.found && html`<${CompanionNotes} comp=${h.comp} />`}
-    <${Cards} highlight=${h} book=${book} />
+    ${!h.isSkipped && html`<${Cards} highlight=${h} book=${book} />`}
     ${h.canEdit && html`<${AskPanel} highlight=${h} book=${book} />`}
     ${buttons()}
   `;
@@ -391,7 +401,8 @@ export function Highlights() {
       const next = neighbour(book, store.ui, h, step);
       if (next) go(here("highlights", next.id));
     } else if (action === "skip" && h.status !== "reviewed") {
-      toggleSkip(book, h);
+      if (h.skipped) toggleSkip(book, h);
+      else skipAndAdvance(book, h);
     } else if (action === "suggest" && h.canEdit && !h.busy && !h.writing) {
       askForCards(book, h);
     }

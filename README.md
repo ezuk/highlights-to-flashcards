@@ -30,7 +30,7 @@ cd highlights-to-flashcards
 ./run.sh
 ```
 
-To start it from Spotlight, Alfred or the Dock instead, run `macos/build.sh` once. It puts a `Highlights to Flashcards` app in `~/Applications` that runs this folder's copy. It shows the app in its own window. Closing the window or quitting stops the server, and View > Open in Browser opens the same page in your browser. Its output goes to `~/Library/Logs/Highlights to Flashcards.log`. Run the script again if you move the folder.
+To start it from Spotlight, Alfred or the Dock instead, run `macos/build.sh` once. It puts a `Highlights to Flashcards` app in `~/Applications` that runs this folder's copy. It shows the app in its own window. Closing the window or quitting stops the server, and View > Open in Browser opens the same page in your browser. Its output goes to `~/Library/Logs/Highlights to Flashcards.log`. Run the script again if you move the folder. The app follows changes to this folder's code while it's open: the page reloads when a screen changes, and the server restarts when a Python file changes. Set `H2F_LIVE_RELOAD=1` to get the same when you run `./run.sh` yourself.
 
 It opens in your browser. Paste a Readwise access token (from readwise.io/access_token), log in to AnkiWeb, and check it found your Calibre library. Then pick a book.
 

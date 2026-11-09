@@ -73,6 +73,24 @@ const Group = ({ group, onRemove, onLater, onDecide }) => html`<div>
 </div>`;
 
 // A card that clashed, side by side with what it clashes with, until an edit or an answer clears it.
+// The new card's text, turning into fields once clicked.
+function NewCardText({ row }) {
+  const [editing, setEditing] = useState(null);
+  const id = `nc-${row.path}`;
+  useEffect(() => {
+    if (editing) document.getElementById(`${id}-${editing}`)?.focus();
+  }, [editing]);
+  if (!editing) {
+    return html`
+      <div class="clashq clickable" title="Click to edit" onClick=${() => setEditing("front")}>${row.front_raw}</div>
+      ${row.back_raw && html`<div class="clasha clickable" title="Click to edit" onClick=${() => setEditing("back")}>${row.back_raw}</div>`}`;
+  }
+  return html`
+    <${Field} id=${`${id}-front`} class="edta q" rows="2" value=${row.front_raw} path=${row.path} field="front" placeholder="Question" />
+    <${Field} id=${`${id}-back`} class="edta a" rows="2" value=${row.back_raw} path=${row.path} field="back" placeholder=${row.cloze ? "Extra context, if any" : "Answer"} />
+    <div class="cact"><button class="lnk" onClick=${() => setEditing(null)}>Done</button></div>`;
+}
+
 function ClashRow({ row, onRemove, onLater, onDismiss, onAnswer, saveHint, onDone }) {
   const clash = row.clash;
   const asking = clash && clash.status === "ask";
@@ -84,8 +102,7 @@ function ClashRow({ row, onRemove, onLater, onDismiss, onAnswer, saveHint, onDon
         <div class="clashc">
           <div class="chead"><span class="clashd">New card</span></div>
           <div class="fl" style="padding-top:4px">
-            <${Field} class="edta q" rows="2" value=${row.front_raw} path=${row.path} field="front" placeholder="Question" />
-            <${Field} class="edta a" rows="2" value=${row.back_raw} path=${row.path} field="back" placeholder=${row.cloze ? "Extra context, if any" : "Answer"} />
+            <${NewCardText} row=${row} />
             <div class="cact">
               ${row.path.startsWith("/api/cards/")
                 ? html`<button class="lnk" title="Remove this card" onClick=${() => onRemove(row)}>Remove</button>`

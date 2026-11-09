@@ -54,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func buildWindow() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
+        // No word predictions while typing
+        if #available(macOS 14.0, *) { config.allowsInlinePredictions = false }
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -135,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let extra = ["\(home)/.local/bin", "\(home)/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]
         let current = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
         env["PATH"] = (current + extra.filter { !current.contains($0) }).joined(separator: ":")
+        // Picks up code changes while the app is open
+        env["H2F_LIVE_RELOAD"] = "1"
 
         let pipe = Pipe()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in

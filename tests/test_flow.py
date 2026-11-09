@@ -118,6 +118,43 @@ class FlowTest(TempHome):
         book = self.service.open_book(rows["Pride and Prejudice"]["id"])
         self.assertEqual([h["status"] for h in book["highlights"]].count("reviewed"), 1)
 
+    def test_only_answered_cards_are_checked_for_clashes(self):
+        self.connect()
+        existing = {"front": "Q?", "back": "A", "quote": "x", "book": "Another book"}
+        self.service.collection.add_cards([existing], collection.OWN_NOTETYPE, "Reader")
+        self.service.clashes.refresh(self.service.collection)
+        rows = {row["title"]: row for row in self.service.books()["books"]}
+        book_id = rows["Pride and Prejudice"]["id"]
+        hid = self.service.open_book(book_id)["highlights"][0]["id"]
+        answered = self.service.add_card(book_id, hid)["card"]
+        self.service.update_card(answered["id"], front="What is the effect?", back="It")
+        unanswered = self.service.add_card(book_id, hid)["card"]
+        self.service.update_card(unanswered["id"], front="What is it trying to escape?")
+        sent = []
+        self.service.clashes.check_new_cards = lambda _book, cards, on_done=None, peers=(): sent.append((cards, peers))
+        self.service._check_new_cards(book_id)
+        [(cards, peers)] = sent
+        self.assertEqual([c["record"] for c in [*cards, *peers]], [f"card:{answered['id']}"])
+        self.assertIsNone(self.service._clash_note(f"card:{unanswered['id']}", "What is it trying to escape?", ""))
+
+    def test_a_finished_highlight_leaves_to_do_before_saving(self):
+        self.connect()
+        rows = {row["title"]: row for row in self.service.books()["books"]}
+        book_id = rows["Pride and Prejudice"]["id"]
+        book = self.service.open_book(book_id)
+        todo = book["counts"]["todo"]
+        hid = book["highlights"][0]["id"]
+        card = self.service.add_card(book_id, hid)["card"]
+        self.service.update_card(card["id"], front="Who must be in want of a wife?")
+        self.service.open_highlight(book_id, hid)
+        self.assertEqual(self.service.open_book(book_id)["counts"]["todo"], todo)
+        self.service.update_card(card["id"], back="A single man in possession of a good fortune")
+        book = self.service.open_book(book_id)
+        self.assertEqual(book["counts"]["todo"], todo - 1)
+        self.assertTrue(book["highlights"][0]["done"])
+        rows = {row["title"]: row for row in self.service.books()["books"]}
+        self.assertEqual(rows["Pride and Prejudice"]["counts"]["todo"], todo - 1)
+
     def test_save_without_ankiweb_waits_for_the_next_sync(self):
         self.service.readwise_token(fakes.TOKEN)
         self.wait_for_sync()

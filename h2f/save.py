@@ -228,6 +228,12 @@ def _ready(item):
     return _filled(item) and need_of(item) != "answer"
 
 
+def finished(state, cards):
+    """Whether an opened highlight's cards are all answered, so it waits only for a save."""
+    written = [card for card in cards if _filled(card)]
+    return bool((state or {}).get("opened")) and bool(written) and all(_ready(card) for card in written)
+
+
 def _select(store, book, highlights, mark_connection_sources):
     """What a save covers, by the mock's rules: only what the user opened."""
     book_id = _book_id(book)

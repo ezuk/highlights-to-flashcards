@@ -80,6 +80,34 @@ def _say(text):
         pass
 
 
+def _code_version():
+    """Modification times of the app's Python files."""
+    root = Path(__file__).resolve().parent
+    files = [root / "run.py", *sorted((root / "h2f").rglob("*.py"))]
+    found = []
+    for file in files:
+        try:
+            found.append((str(file), file.stat().st_mtime_ns))
+        except OSError:
+            pass
+    return found
+
+
+def _watch_code(stop, restart, every=1.0):
+    """Sets `restart` and `stop` once a Python file changes."""
+    known = _code_version()
+    while not stop.wait(every):
+        if _code_version() != known:
+            restart.set()
+            stop.set()
+
+
+def _restart(port):
+    """Replaces this process with a fresh copy on the same port, keeping its output."""
+    script = str(Path(__file__).resolve())
+    os.execv(sys.executable, [sys.executable, script, *sys.argv[1:], "--port", str(port), "--no-open"])
+
+
 def main(argv=None):
     args = parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
@@ -123,9 +151,17 @@ def main(argv=None):
     if not args.no_open and not service._open_command(["open", http.url]):
         print("The browser didn't open. Go to the address above.", file=sys.stderr, flush=True)
 
+    restart = threading.Event()
+    if os.environ.get("H2F_LIVE_RELOAD"):
+        threading.Thread(target=_watch_code, args=(stop, restart), name="h2f-code-watch", daemon=True).start()
+
     stop.wait()
+    if restart.is_set():
+        _say("The code changed. Restarting.")
     http.stop(waiting=lambda: _say("Finishing what's under way. Press Ctrl-C again to quit now."))
     hold.close()
+    if restart.is_set():
+        _restart(http.port)
     return 0
 
 

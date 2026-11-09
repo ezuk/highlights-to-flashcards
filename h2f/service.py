@@ -54,7 +54,7 @@ KINDS = [
 ]
 SOURCE_AI_WITH_COMPANION = "AI, using the Book Companion"
 
-GLYPHS = {"rev": "✓", "skip": "–", "cards": "●", "sugg": "○", "writing": "…", "todo": "○"}
+GLYPHS = {"rev": "✓", "done": "✓", "skip": "–", "cards": "●", "sugg": "○", "writing": "…", "todo": "○"}
 
 _COMMENT = re.compile(r"<!--.*?-->")
 
@@ -399,6 +399,11 @@ class _Context:
         state = self.states.get(h["hid"]) or {}
         return bool(state.get("skipped")) and h["status"] != "reviewed"
 
+    def is_done(self, h):
+        """Finished here and waiting for a save."""
+        return (h["status"] != "reviewed" and not self.is_skipped(h)
+                and save.finished(self.states.get(h["hid"]), self.drafts.get(h["hid"], [])))
+
     def open_drafts(self):
         """Written cards on highlights still to do, whether opened or not."""
         return sum(
@@ -410,8 +415,9 @@ class _Context:
         total = len(self.highlights)
         reviewed = sum(1 for h in self.highlights if h["status"] == "reviewed")
         skipped = sum(1 for h in self.highlights if self.is_skipped(h))
-        return {"all": total, "todo": total - reviewed - skipped, "rev": reviewed + skipped,
-                "reviewed": reviewed, "skipped": skipped}
+        done = sum(1 for h in self.highlights if self.is_done(h))
+        return {"all": total, "todo": total - reviewed - skipped - done, "rev": reviewed + skipped + done,
+                "reviewed": reviewed, "skipped": skipped, "done": done}
 
 
 class Service:
@@ -912,14 +918,19 @@ class Service:
         stored = data.get("counts") or {}
         if not highlights and stored.get("total") is not None:
             total, reviewed = stored["total"], stored.get("reviewed", 0)
-            return {"all": total, "todo": total - reviewed, "rev": reviewed, "reviewed": reviewed, "skipped": 0}
+            return {"all": total, "todo": total - reviewed, "rev": reviewed, "reviewed": reviewed, "skipped": 0, "done": 0}
         keys = {h["key"] for h in highlights or [] if h.get("key") and h.get("text")}
         reviewed = save.reviewed_keys(self._store, book, highlights or []) & keys
-        skipped = {
-            state["key"] for state in self._store.list_highlights(book["id"]).values() if state["skipped"]
-        } & (keys - reviewed)
-        return {"all": len(keys), "todo": len(keys) - len(reviewed) - len(skipped), "rev": len(reviewed) + len(skipped),
-                "reviewed": len(reviewed), "skipped": len(skipped)}
+        states = self._store.list_highlights(book["id"])
+        skipped = {state["key"] for state in states.values() if state["skipped"]} & (keys - reviewed)
+        drafts = {}
+        for card in self._store.list_cards(book["id"]):
+            drafts.setdefault(card["hid"], []).append(card)
+        done = {state["key"] for hid, state in states.items()
+                if save.finished(state, drafts.get(hid, []))} & (keys - reviewed - skipped)
+        return {"all": len(keys), "todo": len(keys) - len(reviewed) - len(skipped) - len(done),
+                "rev": len(reviewed) + len(skipped) + len(done),
+                "reviewed": len(reviewed), "skipped": len(skipped), "done": len(done)}
 
     def _companion_label(self, book):
         if self._find_companion(book)["found"]:
@@ -1046,16 +1057,19 @@ class Service:
                 return
             self._check_model(self._store.get_settings()["meta_model"])
             records = list(self._book_records(book_id).items())
+            # Only answered cards are checked or checked against
             batch = [{"record": record, "question": clashes.card_key(item["front"], item["back"]),
                       "front": clashes.plain(item["front"]), "back": item["back"]}
                      for record, item in records
-                     if item["front"].strip() and (only is None or record in only)]
+                     if save._ready(item) and (only is None or record in only)]
+            unanswered = {clashes.plain(item["front"]) for _, item in records if save._filled(item) and not save._ready(item)}
             # A clash with a card that was since edited or removed needs a new look
             fronts = None if only is None else self._clash_fronts(card["front"] for card in batch)
             cards, peers = [], []
             for card in batch:
                 found = self._store.card_clash(card["record"], card["question"])
-                if found and _clash_is_stale(found, fronts):
+                if found and (_clash_is_stale(found, fronts) or
+                              (not found.get("other_nid") and found["other_front"] in unanswered)):
                     self._store.forget_card_clash(card["record"])
                     found = None
                 (peers if found else cards).append(card)
@@ -1072,7 +1086,9 @@ class Service:
         return records
 
     def _clash_note(self, record, front, back):
-        """What a new card clashes with, and where the user's answer stands."""
+        """What a new card clashes with, and where the user's answer stands. None for an unanswered card."""
+        if not save._ready({"front": front, "back": back}):
+            return None
         found = self._store.card_clash(record, clashes.card_key(front, back))
         if not found or not found["other_front"]:
             return None
@@ -1397,7 +1413,7 @@ class Service:
         connection_views = [self._connection_view(context, item) for item in context.connections]
         idea_views = [self._idea_view(item) for item in context.ideas]
         have = companion_view["have"]
-        pending = counts["todo"]
+        pending = counts["todo"] + counts["done"]
         due = self._due_count(context)
         redo = self._redo_count(context)
         if not due:
@@ -1531,6 +1547,8 @@ class Service:
             mode = "rev"
         elif skipped:
             mode = "skip"
+        elif context.is_done(h):
+            mode = "done"
         elif drafts:
             mode = "cards" if opened else "sugg"
         elif writing or job:
@@ -1543,6 +1561,7 @@ class Service:
         count_text = {
             "rev": "Reviewed",
             "skip": "Skipped",
+            "done": _plural(n, "card"),
             "writing": "Writing",
             "sugg": f"{n} suggested",
             "cards": _plural(n, "card"),
@@ -1582,6 +1601,7 @@ class Service:
             "meta": " · ".join(part for part in meta if part),
             "opened": opened,
             "skipped": skipped,
+            "done": mode == "done",
             "error": state.get("error"),
             "later": later if have else "",
             "cards": [
