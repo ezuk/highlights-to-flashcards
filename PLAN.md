@@ -35,7 +35,7 @@ The preview is unchanged: only opened highlights, connections and key ideas, blo
 
 ## 5. Screens
 
-Connect: Readwise, AnkiWeb and Calibre each with a status, and a Sync now button; it shows until all three are set. Start: make new cards or tidy up existing ones. Pick a book lists Readwise books with highlights, newest first, with a search box. The working screens (Suggest cards, Highlights, Connections, Key ideas, Save, Clashes) are as in pbAnki. Settings holds the three sources, the note type and parent deck, and, with a book open, which Calibre book it reads from.
+Connect: Readwise, AnkiWeb and Calibre each with a status, and a Sync now button; it shows until all three are set. Start: make new cards or tidy up existing ones. Pick a book lists Readwise books with highlights, newest first, with a search box. The working screens (Suggest cards, Highlights, Connections, Key ideas, Save, Clashes) are as in pbAnki. Settings holds the three sources, the note type and parent deck, and, with a book open, which Calibre book it reads from. Write notes (`notes.py`, `notes_ai.py`, `notes_service.py`) has its own settings screen, then Think first, Ideas, Gather an idea, Writing, Not highlighted and Where it landed. It reads the Obsidian vault as Markdown, writes new notes as files, and changes other notes through Advanced URI while Obsidian runs.
 
 ## 6. Layout
 

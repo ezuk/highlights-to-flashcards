@@ -210,10 +210,10 @@ def _open_command(args):
         return False
 
 
-def _pick_folder():
+def _pick_folder(script=_CHOOSE_FOLDER_SCRIPT):
     # Runs the Mac's folder dialog, or the test command in H2F_CHOOSE_FOLDER_CMD
     override = os.environ.get("H2F_CHOOSE_FOLDER_CMD")
-    command = shlex.split(override) if override else ["osascript", "-e", _CHOOSE_FOLDER_SCRIPT]
+    command = shlex.split(override) if override else ["osascript", "-e", script]
     try:
         done = subprocess.run(command, capture_output=True, text=True, timeout=CHOOSE_FOLDER_SECONDS, check=False)
     except subprocess.TimeoutExpired:
@@ -464,6 +464,8 @@ class Service:
         self._notes_memo = {}
         self._find_errors = {}
         self._check_skips = set()
+        from . import notes_service
+        self.notes = notes_service.NotesService(self)
 
     # Life cycle
 
@@ -495,6 +497,7 @@ class Service:
             job["token"].cancel()
         for job in jobs:
             job["thread"].join(wait)
+        self.notes.stop(wait)
         self.runner.shutdown(wait=wait)
         self.clashes.shutdown(wait=wait)
         self.collection.close()

@@ -164,9 +164,39 @@ def clash_reply(prompt):
     return {"clashes": [{"new": int(n), "other": f"E{existing.group(1)}", "p": 0.95, "why": "Both ask about Zanzibar."} for n in new]}
 
 
+def _slipbox_titles(prompt):
+    lines = _section(prompt, "slipbox").split("\n")
+    if any(line.startswith("### ") for line in lines):
+        return [line[4:] for line in lines if line.startswith("### ")]
+    return [re.split(r" \(#|: ", line[2:], maxsplit=1)[0] for line in lines if line.startswith("- ")]
+
+
+def notes_reply(prompt):
+    titles = _slipbox_titles(prompt)
+    if '"close_to"' in prompt:
+        numbers = [n for n, _where, _text in _numbered_highlights(prompt)]
+        ideas = []
+        if numbers:
+            ideas.append({"title": "Fake idea from highlights", "summary": "The first highlights say one thing.",
+                          "highlights": numbers[:2],
+                          "close_to": [{"note": titles[0], "why": "It says much the same."}] if titles else [],
+                          "disagrees": [{"note": titles[1], "why": "It says the opposite."}] if len(titles) > 1 else []})
+        if len(numbers) > 2:
+            ideas.append({"title": "Second fake idea", "summary": "Another point.", "highlights": numbers[2:3]})
+        missed = re.findall(r"^(\d+)\. ", _section(prompt, "not_highlighted"), re.M)
+        return {"ideas": ideas, "missed": [{"number": int(n), "close_to": [{"note": titles[0], "why": "Near it."}]}
+                                           for n in missed[:1]] if titles else []}
+    if '{"links":' in prompt:
+        kinds = ["same idea", "disagrees", "builds on"]
+        return {"links": [{"note": t, "kind": kinds[i % 3], "why": f"Fake reason {i + 1}."} for i, t in enumerate(titles[:3])]}
+    return {"titles": ["fake title one", "a fake plain claim"]}
+
+
 def valid_reply(prompt, mode="valid"):
     if "Existing cards:" in prompt and "New cards:" in prompt:
         return clash_reply(prompt)
+    if '"close_to"' in prompt or '{"links":' in prompt or '{"titles":' in prompt:
+        return notes_reply(prompt)
     if mode == "believable":
         return believable_reply(prompt)
     if mode == "no_connections" and '{"connections":' in prompt:

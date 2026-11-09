@@ -14,12 +14,13 @@ import { SaveCards, Saved } from "./screens/save.js";
 import { PromptDrawer } from "./drawers/prompt.js";
 import { SettingsDrawer } from "./drawers/settings.js";
 import { CreateDrawer } from "./drawers/create.js";
+import { Notes } from "./screens/notes.js";
 
 // Looked up with text from the address, so these have no inherited names
 const table = (entries) => Object.assign(Object.create(null), entries);
 
 // Screens with no book
-const SCREENS = table({ connect: Connect, start: Start, books: PickBook, clashes: Clashes });
+const SCREENS = table({ connect: Connect, start: Start, books: PickBook, clashes: Clashes, notes: Notes });
 // Screens of the open book. They can count on store.book being there.
 const BOOK_SCREENS = table({ suggest: Suggest, highlights: Highlights, connections: Connections, ideas: Ideas, save: SaveCards, saved: Saved });
 const DRAWERS = table({ prompt: PromptDrawer, settings: SettingsDrawer, create: CreateDrawer });

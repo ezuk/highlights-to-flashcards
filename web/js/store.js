@@ -64,6 +64,9 @@ export function parseRoute(hash) {
   const [path, search] = hash.replace(/^#\/?/, "").split("?");
   const parts = path.split("/").filter(Boolean).map(decoded);
   const query = Object.fromEntries(new URLSearchParams(search || ""));
+  if (parts[0] === "notes") {
+    return { name: "notes", bookId: null, sub: parts[1] || "setup", notesBook: parts[2] || null, item: parts[3] || null, query };
+  }
   if (parts[0] === "book" && parts[1]) {
     return { name: parts[2] || "suggest", bookId: parts[1], sub: parts[3] || null, query };
   }

@@ -12,6 +12,7 @@ It runs on your Mac as a small local web app. Your highlights come from [Readwis
 4. **You review**: open a highlight, keep, edit or remove its cards, or write your own.
 5. **Checks for clashes**: cards whose questions read alike but whose answers differ, so a review can't tell which answer it wants. It checks new cards against each other and your whole collection, and can tidy up clashes already in your collection.
 6. **Saves and syncs**: new cards go into your collection, each book in its own deck, and AnkiWeb gets them at once.
+7. **Writes notes**, if you keep a slip-box in [Obsidian](https://obsidian.md). See below.
 
 ## What you need
 
@@ -50,7 +51,20 @@ If your collection already has the `pbAnki KOReader` note type from the pbAnki K
 
 ## Prompts
 
-The instructions the AI follows are plain Markdown files in `prompts/Standard`. To write your own, copy that folder next to it, rename the copy, and pick it in the app. You can also edit `Standard` directly: the app only updates a Standard file you haven't changed, and deleting one brings the app's version back on the next start.
+The instructions the AI follows are plain Markdown files in `prompts/Standard`, with the ones for writing notes in its `Slipbox` folder. To write your own, copy that folder next to it, rename the copy, and pick it in the app. You can also edit `Standard` directly: the app only updates a Standard file you haven't changed, and deleting one brings the app's version back on the next start.
+
+## Write notes
+
+For a slip-box (Zettelkasten) kept in an Obsidian vault: short notes in your own words, linked across books. The AI never writes a note. It sorts and finds; you write.
+
+1. **Before you start**: pick the vault, the AI for each job, and look over the prompts.
+2. **Think about the book first**: write what stayed with you from memory, before seeing a highlight. It opens the book's own note later and is never sent to the AI. Set the book's tag here, like `#book/ArtOfWar`.
+3. **What did you just read?** Meanwhile the AI has read the book and gathered the highlights into a handful of ideas, with your margin notes and cards beside each, and flagged notes each idea is close to or disagrees with. Write or dismiss each one.
+4. **Gather an idea**: tick the highlights to quote, pick a title (the AI suggests a few in your style), and tick the notes in your slip-box it should link to. Create opens the new note in Obsidian: the tag, the quotes, room to write, and a See also line.
+5. **Writing**: keep the app beside Obsidian. Each time Obsidian saves, it shows the links you've made, and when you pause it looks again for notes your words now touch. Done adds a link back to the new note from every note it links to: the first place a note mentions the title becomes the link, otherwise it goes on that note's See also line.
+6. **Where it landed** shows the web around each new note, and writes the book's own note: what you got out of it from memory, then the list of notes.
+
+Ideas the Book Companion found that you didn't highlight get their own list. New notes are written as files. Changes to other notes go through Obsidian's Advanced URI plugin while Obsidian is open, and straight to the file when it isn't. Keep the vault in git (obsidian-git does this) so any change can be undone.
 
 ## Book Companions
 

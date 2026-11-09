@@ -312,7 +312,57 @@ MIGRATIONS = [
         "ALTER TABLE collection_notes ADD COLUMN quote TEXT NOT NULL DEFAULT ''",
         "CREATE INDEX collection_notes_by_deck ON collection_notes(deck)",
     ),
+    (
+        """CREATE TABLE notes_books(
+            book_id TEXT PRIMARY KEY,
+            tag TEXT NOT NULL DEFAULT '',
+            reflection TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            error TEXT,
+            gathered_at REAL,
+            updated_at REAL NOT NULL
+        )""",
+        """CREATE TABLE note_ideas(
+            id TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            chapter TEXT NOT NULL DEFAULT '',
+            quote TEXT NOT NULL DEFAULT '',
+            keys_json TEXT NOT NULL DEFAULT '[]',
+            flags_json TEXT NOT NULL DEFAULT '[]',
+            related_json TEXT,
+            related_at REAL,
+            titles_json TEXT,
+            state TEXT NOT NULL DEFAULT 'todo',
+            note_id TEXT,
+            created_at REAL NOT NULL
+        )""",
+        "CREATE INDEX note_ideas_by_book ON note_ideas(book_id, origin, position)",
+        """CREATE TABLE notes_written(
+            id TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            idea_id TEXT,
+            title TEXT NOT NULL,
+            path TEXT NOT NULL,
+            added INTEGER NOT NULL DEFAULT 0,
+            linked_json TEXT NOT NULL DEFAULT '[]',
+            related_json TEXT,
+            related_at REAL,
+            related_for TEXT,
+            created_at REAL NOT NULL,
+            done_at REAL
+        )""",
+        "CREATE INDEX notes_written_by_book ON notes_written(book_id, created_at)",
+    ),
 ]
+
+NOTE_TODO = "todo"
+NOTE_WRITTEN = "written"
+NOTE_DISMISSED = "dismissed"
+NOTE_STATES = (NOTE_TODO, NOTE_WRITTEN, NOTE_DISMISSED)
 
 _CLOZE = re.compile(r"\{\{c\d+::")
 
@@ -412,6 +462,26 @@ def _run(row):
     run["options"] = json.loads(run.pop("options_json"))
     run["progress"] = json.loads(run.pop("progress_json"))
     return run
+
+
+def _note_idea(row):
+    item = dict(row)
+    item["keys"] = json.loads(item.pop("keys_json") or "[]")
+    item["flags"] = json.loads(item.pop("flags_json") or "[]")
+    related = item.pop("related_json")
+    item["related"] = json.loads(related) if related else None
+    titles = item.pop("titles_json")
+    item["titles"] = json.loads(titles) if titles else None
+    return item
+
+
+def _note_written(row):
+    item = dict(row)
+    item["added"] = bool(item["added"])
+    item["linked"] = json.loads(item.pop("linked_json") or "[]")
+    related = item.pop("related_json")
+    item["related"] = json.loads(related) if related else None
+    return item
 
 
 def _marks(values):
@@ -1098,6 +1168,112 @@ class Store:
         rows = self._all("SELECT * FROM readwise_highlights WHERE book_id = ? ORDER BY highlighted_at, id",
                          (book_id,))
         return [dict(r) for r in rows]
+
+    # Notes
+
+    def notes_book(self, book_id):
+        row = self._one("SELECT * FROM notes_books WHERE book_id = ?", (book_id,))
+        return dict(row) if row else None
+
+    def set_notes_book(self, book_id, **fields):
+        allowed = {"tag", "reflection", "status", "error", "gathered_at"}
+        fields = {k: v for k, v in fields.items() if k in allowed}
+        with self.transaction():
+            if self.notes_book(book_id) is None:
+                self._write("INSERT INTO notes_books(book_id, updated_at) VALUES (?, ?)", (book_id, time.time()))
+            if fields:
+                sets = ", ".join(f"{k} = ?" for k in fields)
+                self._write(f"UPDATE notes_books SET {sets}, updated_at = ? WHERE book_id = ?",
+                            (*fields.values(), time.time(), book_id))
+        return self.notes_book(book_id)
+
+    def notes_books(self):
+        return [dict(r) for r in self._all("SELECT * FROM notes_books")]
+
+    def replace_note_ideas(self, book_id, origin, ideas):
+        """Puts in a fresh list of ideas, keeping those already written or dismissed."""
+        with self.transaction():
+            kept = self._all("SELECT title FROM note_ideas WHERE book_id = ? AND origin = ? AND state != ?",
+                             (book_id, origin, NOTE_TODO))
+            kept_titles = {r["title"].lower() for r in kept}
+            self._write("DELETE FROM note_ideas WHERE book_id = ? AND origin = ? AND state = ?",
+                        (book_id, origin, NOTE_TODO))
+            start = (self._one("SELECT MAX(position) AS p FROM note_ideas WHERE book_id = ? AND origin = ?",
+                               (book_id, origin))["p"] or 0) + 1
+            for offset, idea in enumerate(i for i in ideas if i["title"].lower() not in kept_titles):
+                self._write(
+                    "INSERT INTO note_ideas(id, book_id, origin, position, title, summary, chapter, quote, "
+                    "keys_json, flags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (new_id(), book_id, origin, start + offset, idea["title"], idea.get("summary", ""),
+                     idea.get("chapter", ""), idea.get("quote", ""), _dumps(idea.get("keys", [])),
+                     _dumps(idea.get("flags", [])), time.time()),
+                )
+
+    def add_note_idea(self, book_id, origin, idea):
+        with self.transaction():
+            position = (self._one("SELECT MAX(position) AS p FROM note_ideas WHERE book_id = ? AND origin = ?",
+                                  (book_id, origin))["p"] or 0) + 1
+            item_id = new_id()
+            self._write(
+                "INSERT INTO note_ideas(id, book_id, origin, position, title, summary, chapter, quote, "
+                "keys_json, flags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (item_id, book_id, origin, position, idea["title"], idea.get("summary", ""),
+                 idea.get("chapter", ""), idea.get("quote", ""), _dumps(idea.get("keys", [])),
+                 _dumps(idea.get("flags", [])), time.time()),
+            )
+        return self.note_idea(item_id)
+
+    def note_ideas(self, book_id, origin=None):
+        sql, args = "SELECT * FROM note_ideas WHERE book_id = ?", [book_id]
+        if origin:
+            sql += " AND origin = ?"
+            args.append(origin)
+        return [_note_idea(r) for r in self._all(sql + " ORDER BY origin, position", args)]
+
+    def note_idea(self, item_id):
+        row = self._one("SELECT * FROM note_ideas WHERE id = ?", (item_id,))
+        if row is None:
+            raise NotFound(item_id)
+        return _note_idea(row)
+
+    def update_note_idea(self, item_id, **fields):
+        columns = {"state": "state", "note_id": "note_id", "related": "related_json",
+                   "related_at": "related_at", "titles": "titles_json", "keys": "keys_json"}
+        self.note_idea(item_id)
+        for key, value in fields.items():
+            if key in ("related", "titles", "keys"):
+                value = None if value is None else _dumps(value)
+            self._write(f"UPDATE note_ideas SET {columns[key]} = ? WHERE id = ?", (value, item_id))
+        return self.note_idea(item_id)
+
+    def add_note_written(self, book_id, idea_id, title, path, added=False, linked=()):
+        item_id = new_id()
+        self._write(
+            "INSERT INTO notes_written(id, book_id, idea_id, title, path, added, linked_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (item_id, book_id, idea_id, title, path, int(bool(added)), _dumps(list(linked)), time.time()),
+        )
+        return self.note_written(item_id)
+
+    def note_written(self, item_id):
+        row = self._one("SELECT * FROM notes_written WHERE id = ?", (item_id,))
+        if row is None:
+            raise NotFound(item_id)
+        return _note_written(row)
+
+    def notes_written(self, book_id):
+        rows = self._all("SELECT * FROM notes_written WHERE book_id = ? ORDER BY created_at, rowid", (book_id,))
+        return [_note_written(r) for r in rows]
+
+    def update_note_written(self, item_id, **fields):
+        columns = {"title": "title", "path": "path", "linked": "linked_json", "related": "related_json",
+                   "related_at": "related_at", "related_for": "related_for", "done_at": "done_at"}
+        self.note_written(item_id)
+        for key, value in fields.items():
+            if key in ("linked", "related"):
+                value = None if value is None else _dumps(value)
+            self._write(f"UPDATE notes_written SET {columns[key]} = ? WHERE id = ?", (value, item_id))
+        return self.note_written(item_id)
 
     # Runs
 

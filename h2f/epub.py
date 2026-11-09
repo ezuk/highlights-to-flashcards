@@ -945,6 +945,27 @@ class Epub:
             if entry["number"] is not None
         ]
 
+    def book_text(self, fraction=1.0):
+        """The book's text with a "## <chapter>" line where each chapter starts, cut to the first
+        `fraction` (0 to 1) of it."""
+        starts = {}
+        for chapter, entry in zip(self.chapters(), (e for e in self.regions() if e["number"] is not None)):
+            if chapter["doc"] is not None:
+                starts.setdefault(chapter["doc"], []).append((self._entry_offset(entry), chapter["name"]))
+        parts = []
+        for number in range(1, len(self.spine) + 1):
+            text = self.doc(number).text
+            cut = 0
+            for offset, name in sorted(starts.get(number, [])):
+                parts.append(text[cut:offset])
+                parts.append(f"\n\n## {name}\n\n")
+                cut = offset
+            parts.append(text[cut:])
+            parts.append(_PARAGRAPH_BREAK)
+        whole = "".join(parts).strip()
+        fraction = min(max(fraction or 0, 0), 1)
+        return whole if fraction >= 1 else whole[:int(len(whole) * fraction)]
+
     def _entry_offset(self, entry):
         if not entry["anchor"]:
             return 0

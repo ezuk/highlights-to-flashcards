@@ -31,6 +31,7 @@ export function Start() {
             ${waiting > 0 && html`<span class="tg wait">${plural(waiting, "change")} waiting to sync</span>`}
           </span>`}
         <//>
+        <${Choice} title="Write notes" detail="Find the few ideas in a book worth keeping, write them in your own words in Obsidian, and knit them into your slip-box." to="#/notes" />
       </div>
     </div></div>
   `;

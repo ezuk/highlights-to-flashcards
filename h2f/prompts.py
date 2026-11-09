@@ -32,6 +32,14 @@ KINDS = [
     {"key": "rewrite", "label": "rewrite", "files": ["rewrite.md"]},
 ]
 
+# Prompts for writing slip-box notes, kept apart from the card prompts
+NOTES_FOLDER = "Slipbox"
+NOTE_KINDS = [
+    {"key": "notes-ideas", "label": "Gather highlights into ideas", "files": [f"{NOTES_FOLDER}/ideas.md"]},
+    {"key": "notes-links", "label": "Find related notes", "files": [f"{NOTES_FOLDER}/links.md"]},
+    {"key": "notes-titles", "label": "Suggest titles", "files": [f"{NOTES_FOLDER}/titles.md"]},
+]
+
 README_TEXT = """# Highlights to Flashcards prompts
 
 Each folder here is a prompt the AI can follow when it writes flashcards. Pick one on the Suggest screen.
@@ -46,6 +54,8 @@ A folder can hold these Markdown files:
 - `rewrite.md` for rewriting one card
 
 A missing or blank file means that kind of card uses the Standard prompt.
+
+The `Slipbox` folder inside a prompt holds the prompts for writing notes: `ideas.md` gathers highlights into ideas, `links.md` finds related notes in your slip-box, and `titles.md` suggests titles. They follow the same rules.
 
 You can edit Standard's files directly and your edits are kept. The app only updates a Standard file you haven't changed. Delete a Standard file to get the app's version back on the next start.
 
@@ -80,11 +90,11 @@ def _read_file(path):
         return None
 
 
-def read(folder):
+def read(folder, kinds=None):
     """Instructions by kind from prompt folder `folder`, without kinds that have
-    no file or an empty one."""
+    no file or an empty one. `kinds` defaults to the card kinds."""
     prompt = {}
-    for kind in KINDS:
+    for kind in KINDS if kinds is None else kinds:
         for name in kind["files"]:
             text = _read_file(Path(folder) / name)
             if text is not None:
@@ -144,18 +154,21 @@ def _seed_standard(root):
         written = {}
     if not isinstance(written, dict):
         written = {}
-    for path in sorted(_repo_standard().glob("*.md")):
+    shipped_files = [*_repo_standard().glob("*.md"), *_repo_standard().glob(f"{NOTES_FOLDER}/*.md")]
+    for path in sorted(shipped_files):
+        name = path.relative_to(_repo_standard()).as_posix()
         shipped = path.read_bytes()
-        target = standard / path.name
+        target = standard / name
         try:
             current = target.read_bytes()
         except OSError:
             current = None
-        if current is None or _digest(current) == written.get(path.name):
+        if current is None or _digest(current) == written.get(name):
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(shipped)
-            written[path.name] = _digest(shipped)
+            written[name] = _digest(shipped)
         elif current == shipped:
-            written[path.name] = _digest(shipped)
+            written[name] = _digest(shipped)
     marks_path.write_text(json.dumps(written, indent=2, sort_keys=True), encoding="utf-8")
 
 
@@ -210,6 +223,25 @@ def effective(name=None):
     return prompt
 
 
+def notes_builtin():
+    """The Standard note-writing instructions shipped in the repo, by kind."""
+    return read(_repo_standard(), NOTE_KINDS)
+
+
+def notes_effective(name=None):
+    """Note-writing instructions by kind for prompt `name`: its own files, else Standard's."""
+    prompt = {**notes_builtin(), **read(paths.prompts_dir() / STANDARD, NOTE_KINDS)}
+    if name in folder_names():
+        prompt.update(read(paths.prompts_dir() / name, NOTE_KINDS))
+    return prompt
+
+
+def notes_files(name):
+    """The note-writing files of prompt `name`, each with its text."""
+    check_name(name)
+    return [{**_file_row(name, kind), "text": _read_file(_file_row(name, kind)["path"]) or ""} for kind in NOTE_KINDS]
+
+
 def default_for_book(book_choice=None, last_used=None):
     """The book's own choice when that folder exists here, else the last used, else Standard."""
     return choose(folder_names(), book_choice, last_used)
@@ -258,7 +290,7 @@ def list_folders():
 
 def _resolve(name, file_name):
     check_name(name)
-    for kind in KINDS:
+    for kind in [*KINDS, *NOTE_KINDS]:
         if file_name == kind["key"] or file_name in kind["files"]:
             return _file_row(name, kind)
     raise PromptNotFound("That prompt file isn't one the app uses.")
@@ -275,6 +307,7 @@ def make_own(name, file_name):
     Returns the file's row."""
     row = _resolve(name, file_name)
     if row["status"] == "uses Standard" and name != STANDARD:
+        Path(row["own_path"]).parent.mkdir(parents=True, exist_ok=True)
         Path(row["own_path"]).write_bytes(Path(row["path"]).read_bytes())
         row = _resolve(name, file_name)
     return row
@@ -310,7 +343,8 @@ class PromptWatcher:
 
     def _scan(self):
         mtimes = {}
-        for path in paths.prompts_dir().glob("*/*.md"):
+        root = paths.prompts_dir()
+        for path in [*root.glob("*/*.md"), *root.glob(f"*/{NOTES_FOLDER}/*.md")]:
             try:
                 mtimes[str(path)] = path.stat().st_mtime_ns
             except OSError:

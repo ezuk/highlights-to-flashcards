@@ -49,7 +49,7 @@ _NO_SUCH_ADDRESS = "The app has nothing at that address."
 _NOT_ALLOWED = "The app can't do that at this address."
 _CLOSING = "The app is closing."
 
-_TOPIC = re.compile(r"(sources|prompts|settings|clashes|book:[^,\s]+)\Z")
+_TOPIC = re.compile(r"(sources|prompts|settings|clashes|notes|book:[^,\s]+|notes:[^,\s]+)\Z")
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -250,6 +250,29 @@ _ROUTES = (
     ("POST", "/api/books/*/companion/copy", {}, lambda s, r: s.companion_copy(*r.args)),
     ("POST", "/api/books/*/companion/keep", {}, lambda s, r: s.companion_keep(*r.args)),
     ("POST", "/api/books/*/companion/forget", {}, lambda s, r: s.companion_forget(*r.args)),
+    ("GET", "/api/notes/setup", {}, lambda s, r: s.notes.setup()),
+    ("PATCH", "/api/notes/settings", {"vault": str, "models": dict, "prompt": str},
+     lambda s, r: s.notes.update_settings(r.body)),
+    ("POST", "/api/notes/choose-vault", {}, lambda s, r: s.notes.choose_vault()),
+    ("GET", "/api/notes/books/*", {}, lambda s, r: s.notes.book_view(*r.args)),
+    ("PATCH", "/api/notes/books/*", {"tag": str, "reflection": str},
+     lambda s, r: s.notes.update_book(*r.args, r.body)),
+    ("POST", "/api/notes/books/*/gather", {}, lambda s, r: s.notes.gather(*r.args)),
+    ("POST", "/api/notes/books/*/hub", {}, lambda s, r: s.notes.hub(*r.args)),
+    ("GET", "/api/notes/ideas/*", {}, lambda s, r: s.notes.idea_view(*r.args)),
+    ("POST", "/api/notes/ideas/*/state", {"state": str},
+     lambda s, r: s.notes.set_idea_state(*r.args, r.body.get("state"))),
+    ("POST", "/api/notes/ideas/*/keys", {"keys": list}, lambda s, r: s.notes.idea_keys(*r.args, r.body.get("keys") or [])),
+    ("POST", "/api/notes/ideas/*/related", {}, lambda s, r: s.notes.idea_related(*r.args)),
+    ("POST", "/api/notes/ideas/*/titles", {}, lambda s, r: s.notes.idea_titles(*r.args)),
+    ("POST", "/api/notes/ideas/*/create", {"title": str, "link": list},
+     lambda s, r: s.notes.create_note(*r.args, r.body.get("title") or "", r.body.get("link") or [])),
+    ("POST", "/api/notes/ideas/*/add-to", {"note": str},
+     lambda s, r: s.notes.add_to_note(*r.args, r.body.get("note") or "")),
+    ("GET", "/api/notes/written/*", {}, lambda s, r: s.notes.written_view(*r.args)),
+    ("POST", "/api/notes/written/*/related", {}, lambda s, r: s.notes.written_related(*r.args)),
+    ("POST", "/api/notes/written/*/open", {}, lambda s, r: s.notes.written_open(*r.args)),
+    ("POST", "/api/notes/written/*/done", {}, lambda s, r: s.notes.written_done(*r.args)),
 )
 
 
