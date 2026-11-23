@@ -33,6 +33,14 @@ ASSISTANTS = {
     "codex": {"name": "Codex", "env": "H2F_CODEX_BIN", "command": "codex"},
 }
 
+# Copies that come inside other apps, used when newer than the one on PATH
+_BUNDLED = {
+    "codex": ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",),
+}
+_VERSION_RE = re.compile(r"(\d+(?:\.\d+)+)(-[0-9A-Za-z.]+)?")
+# Path to ((modified, size), version key), so --version runs again only after an update
+_version_keys = {}
+
 MODELS = [
     {"id": "claude-haiku-5-5", "label": "Haiku 5.5", "assistant": "claude"},
     {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5", "assistant": "claude"},
@@ -52,7 +60,7 @@ _catalog = {"path": None, "data": {}}
 _catalog_lock = threading.Lock()
 
 # Codex features that give the model tools or run the user's own setup, checked against
-# the tool list codex 0.160.1 really sends. With code_mode_host off, its exec tool fails closed
+# the tool list codex 0.171.0 really sends. With code_mode_host off, its exec tool fails closed
 _CODEX_OFF = (
     "shell_tool", "unified_exec", "unified_exec_tty", "code_mode", "code_mode_only", "code_mode_host",
     "view_image", "image_generation", "multi_agent", "multi_agent_v2", "apps", "plugins", "remote_plugin",
@@ -105,12 +113,36 @@ def child_env():
 
 
 def find_binary(assistant):
-    """Full path of an assistant's command, or None. The environment override wins."""
+    """Full path of an assistant's command, or None. The environment override wins, then the
+    newest of the one on PATH and any copy inside another app."""
     info = ASSISTANTS[assistant]
     override = os.environ.get(info["env"])
     if override:
         return override if os.access(override, os.X_OK) else None
-    return shutil.which(info["command"], path=child_env()["PATH"])
+    on_path = shutil.which(info["command"], path=child_env()["PATH"])
+    candidates = ([on_path] if on_path else []) + [p for p in _BUNDLED.get(assistant, ()) if os.access(p, os.X_OK)]
+    best, best_key = None, None
+    for path in candidates:
+        key = _version_key(path)
+        if best is None or (key is not None and (best_key is None or key > best_key)):
+            best, best_key = path, key
+    return best
+
+
+def _version_key(path):
+    """(numbers, is a release) from a command's --version, for comparing, or None."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    stamp = (info.st_mtime_ns, info.st_size)
+    cached = _version_keys.get(path)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    match = _VERSION_RE.search(_version_text(path))
+    key = (tuple(int(part) for part in match.group(1).split(".")), not match.group(2)) if match else None
+    _version_keys[path] = (stamp, key)
+    return key
 
 
 def _display_path(path):
@@ -132,14 +164,18 @@ def detect():
     return found
 
 
-def _version(path):
+def _version_text(path):
     try:
         with tempfile.TemporaryDirectory() as folder:
             done = subprocess.run([path, "--version"], capture_output=True, cwd=folder, env=child_env(),
                                   timeout=_VERSION_TIMEOUT, check=False)
     except (OSError, subprocess.SubprocessError):
-        return None
-    match = re.search(r"\d+(?:\.\d+)+", done.stdout.decode("utf-8", "replace"))
+        return ""
+    return done.stdout.decode("utf-8", "replace")
+
+
+def _version(path):
+    match = re.search(r"\d+(?:\.\d+)+", _version_text(path))
     return match.group(0) if match else None
 
 

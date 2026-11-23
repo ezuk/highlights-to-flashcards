@@ -319,6 +319,25 @@ class DetectTest(FakeAITest):
         self.assertTrue(env["PATH"].startswith("/usr/bin:/bin"))
         os.environ["H2F_CLAUDE_BIN"] = self.env["H2F_CLAUDE_BIN"]
 
+    def test_uses_the_newest_copy(self):
+        folder = Path(self.temp.name)
+        (folder / "bin").mkdir()
+
+        def command(path, version):
+            path.write_text(f"#!/bin/sh\necho 'codex-cli {version}'\n", encoding="utf-8")
+            path.chmod(0o755)
+            return str(path)
+
+        on_path = command(folder / "bin" / "codex", "0.160.1")
+        bundled = command(folder / "bundled-codex", "0.171.0-alpha.13")
+        os.environ.pop("H2F_CODEX_BIN")
+        with mock.patch.dict(os.environ, {"PATH": str(folder / "bin")}), \
+                mock.patch.dict(ai._BUNDLED, {"codex": (bundled, str(folder / "missing"))}):
+            self.assertEqual(ai.find_binary("codex"), bundled)
+            command(folder / "bin" / "codex", "0.171.0")
+            self.assertEqual(ai.find_binary("codex"), on_path)
+        os.environ["H2F_CODEX_BIN"] = self.env["H2F_CODEX_BIN"]
+
     def test_override_must_be_executable(self):
         plain = Path(self.temp.name) / "plain"
         plain.write_text("x", encoding="utf-8")
@@ -547,7 +566,7 @@ class ProcessEdgeTest(FakeAITest):
         self.assertEqual(str(caught.exception), "Claude Code could not be started: embedded null byte.")
 
 
-@unittest.skipUnless(shutil.which("codex"), "codex is not installed")
+@unittest.skipUnless(ai.find_binary("codex"), "codex is not installed")
 class RealCodexToolsTest(unittest.TestCase):
     """What the real codex command offers the model, caught by a local stand-in for the API.
     Nothing leaves this Mac, and this fails if a new codex adds a tool the command doesn't turn off."""
@@ -582,7 +601,7 @@ class RealCodexToolsTest(unittest.TestCase):
             "model_providers.stub.requires_openai_auth=false",
         ]
         with tempfile.TemporaryDirectory() as folder:
-            argv = ai.codex_command(shutil.which("codex"), "gpt-6.1-sol", Path(folder) / "answer.txt")
+            argv = ai.codex_command(ai.find_binary("codex"), "gpt-6.1-sol", Path(folder) / "answer.txt")
             at = argv.index("-o")
             argv[at:at] = [arg for value in provider for arg in ("-c", value)]
             done = subprocess.run(argv, input=b"hello", cwd=folder, capture_output=True, timeout=120, check=False)
