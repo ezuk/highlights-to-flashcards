@@ -327,6 +327,19 @@ class DetectTest(FakeAITest):
 
 
 class ModelsTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"H2F_HOME": self.temp.name, "H2F_CLAUDE_BIN": str(FAKE / "claude"),
+                                               "H2F_CODEX_BIN": str(FAKE / "codex")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("FAKE_AI_MODELS", None)
+
+    def offer(self, claude, codex):
+        os.environ["FAKE_AI_MODELS"] = json.dumps({"claude": [{"id": i, "label": l} for i, l in claude],
+                                                   "codex": [{"id": i, "label": l} for i, l in codex]})
+
     def test_list_matches_the_plan(self):
         self.assertEqual([(m["id"], m["label"], m["assistant"]) for m in ai.MODELS], [
             ("claude-haiku-5-5", "Haiku 5.5", "claude"),
@@ -337,6 +350,31 @@ class ModelsTest(unittest.TestCase):
         ])
         self.assertEqual(ai.DEFAULT_MODEL, "claude-sonnet-5-5")
         self.assertEqual(ai.DEFAULT_META_MODEL, "claude-opus-5-5")
+
+    def test_refresh_shows_the_newest_of_each_family(self):
+        self.offer([("claude-opus-5-5", "Opus 5.5"), ("claude-fable-5-2", "Fable 5.2"), ("claude-haiku-5-5", "Haiku 5.5"),
+                    ("claude-fable-5-1", "Fable 5.1"), ("claude-haiku-4-5-20251001", "Haiku 4.5")],
+                   [("gpt-6.1-terra", "GPT-6.1 Terra"), ("gpt-6.1-sol", "GPT-6.1-Sol"), ("gpt-6-sol", "GPT-6-Sol")])
+        self.assertTrue(ai.refresh_models())
+        self.assertEqual([(m["id"], m["label"]) for m in ai.models()], [
+            ("claude-haiku-5-5", "Haiku 5.5"),
+            ("claude-opus-5-5", "Opus 5.5"),
+            ("claude-fable-5-2", "Fable 5.2"),
+            ("gpt-6.1-terra", "GPT-6.1 Terra (Codex)"),
+            ("gpt-6.1-sol", "GPT-6.1 Sol (Codex)"),
+        ])
+        self.assertFalse(ai.refresh_models())
+        self.assertEqual(ai.model_info("claude-fable-5-1")["assistant"], "claude")
+        self.assertEqual(ai.current_model("claude-fable-5-1"), "claude-fable-5-2")
+        self.assertEqual(ai.current_model("gpt-6-sol"), "gpt-6.1-sol")
+        self.assertEqual(ai.current_model("claude-opus-9"), "claude-opus-9")
+
+    def test_refresh_keeps_the_last_list_when_asking_fails(self):
+        self.offer([("claude-fable-5-2", "Fable 5.2")], [("gpt-6.1-terra", "GPT-6.1 Terra")])
+        ai.refresh_models()
+        with mock.patch.dict(os.environ, {"H2F_CLAUDE_BIN": "/nowhere/claude", "H2F_CODEX_BIN": "/nowhere/codex"}):
+            self.assertFalse(ai.refresh_models())
+        self.assertEqual([m["id"] for m in ai.models()], ["claude-fable-5-2", "gpt-6.1-terra"])
 
     def test_menus_list_only_enabled_assistants(self):
         self.assertEqual([m["id"] for m in ai.enabled_models({"codex": True, "claude": False})], ["gpt-6.1-sol"])

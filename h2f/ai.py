@@ -16,10 +16,13 @@ import threading
 import time
 from pathlib import Path
 
+from . import paths
+
 DEFAULT_TIMEOUT = 300
 _KILL_GRACE_SECONDS = 2
 _POLL_SECONDS = 0.05
 _VERSION_TIMEOUT = 15
+_LIST_TIMEOUT = 30
 _TEMP_PREFIX = "h2f-ai-"
 
 # Commands under way, process group to working folder
@@ -37,6 +40,16 @@ MODELS = [
     {"id": "claude-fable-5-1", "label": "Fable 5.1", "assistant": "claude"},
     {"id": "gpt-6.1-sol", "label": "GPT-6.1 Sol (Codex)", "assistant": "codex"},
 ]
+
+# Order of the Claude families in menus
+_CLAUDE_FAMILIES = ("haiku", "sonnet", "opus", "fable")
+_CLAUDE_ID_RE = re.compile(r"^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$")
+_CODEX_ID_RE = re.compile(r"^gpt-(\d+)(?:\.(\d+))?-([a-z]+)$")
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Every model each assistant offered when last asked, read from the models file
+_catalog = {"path": None, "data": {}}
+_catalog_lock = threading.Lock()
 
 # Codex features that give the model tools or run the user's own setup, checked against
 # the tool list codex 0.160.1 really sends. With code_mode_host off, its exec tool fails closed
@@ -130,9 +143,163 @@ def _version(path):
     return match.group(0) if match else None
 
 
+def _family(model_id):
+    """(family, version) of a model id, or (id, ()) for an id without the usual shape."""
+    match = _CLAUDE_ID_RE.match(model_id)
+    if match:
+        return "claude-" + match.group(1), (int(match.group(2)), int(match.group(3) or 0))
+    match = _CODEX_ID_RE.match(model_id)
+    if match:
+        return "gpt-" + match.group(3), (int(match.group(1)), int(match.group(2) or 0))
+    return model_id, ()
+
+
+def _newest(models):
+    """The newest model of each family, in the order given."""
+    best = {}
+    for model in models:
+        family, version = _family(model["id"])
+        if family not in best or version > _family(best[family]["id"])[1]:
+            best[family] = model
+    keep = {model["id"] for model in best.values()}
+    return [model for model in models if model["id"] in keep]
+
+
+def _catalog_data():
+    path = paths.home() / "models.json"
+    with _catalog_lock:
+        if _catalog["path"] != path:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            _catalog.update(path=path, data=data if isinstance(data, dict) else {})
+        return _catalog["data"]
+
+
+def _save_catalog(data):
+    path = paths.home() / "models.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    temp.replace(path)
+    with _catalog_lock:
+        _catalog.update(path=path, data=data)
+
+
+def _offered(assistant):
+    """Every model an assistant offered when last asked, or the built-in ones."""
+    listed = _catalog_data().get(assistant)
+    if isinstance(listed, list) and listed:
+        return [{"id": m["id"], "label": m["label"], "assistant": assistant} for m in listed]
+    return [model for model in MODELS if model["assistant"] == assistant]
+
+
+def models():
+    """Models to pick from: the newest of each family, for each assistant."""
+    return [model for assistant in ASSISTANTS for model in _newest(_offered(assistant))]
+
+
 def enabled_models(assistants):
     """Models of the assistants turned on in `assistants`, {id: bool}."""
-    return [model for model in MODELS if assistants.get(model["assistant"])]
+    return [model for model in models() if assistants.get(model["assistant"])]
+
+
+def current_model(model_id):
+    """The newest model of `model_id`'s family, when a newer one is out; otherwise `model_id`."""
+    family, version = _family(model_id)
+    for model in models():
+        other, newer = _family(model["id"])
+        if other == family and newer > version:
+            return model["id"]
+    return model_id
+
+
+def _claude_models(stdout):
+    """Models from the answer to Claude Code's start-up handshake, or None."""
+    listed = None
+    for line in stdout.splitlines():
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("type") == "control_response":
+            listed = ((data.get("response") or {}).get("response") or {}).get("models")
+            break
+    if not isinstance(listed, list):
+        return None
+    found = {}
+    for entry in listed:
+        if not isinstance(entry, dict) or entry.get("value") == "default":
+            continue
+        model_id, label = entry.get("resolvedModel") or entry.get("value"), entry.get("displayName")
+        if isinstance(model_id, str) and isinstance(label, str) and _SAFE_ID_RE.match(model_id):
+            found.setdefault(model_id, {"id": model_id, "label": label})
+
+    def order(model):
+        name = _family(model["id"])[0].removeprefix("claude-")
+        return _CLAUDE_FAMILIES.index(name) if name in _CLAUDE_FAMILIES else len(_CLAUDE_FAMILIES)
+
+    return sorted(found.values(), key=order) or None
+
+
+def _codex_models(stdout):
+    """Models from `codex debug models`, or None."""
+    try:
+        listed = json.loads(stdout).get("models")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(listed, list):
+        return None
+    entries = [e for e in listed if isinstance(e, dict) and e.get("visibility") == "list"]
+    entries.sort(key=lambda e: e.get("priority") if isinstance(e.get("priority"), int) else 1_000_000)
+    found = {}
+    for entry in entries:
+        model_id, name = entry.get("slug"), entry.get("display_name")
+        if isinstance(model_id, str) and isinstance(name, str) and _SAFE_ID_RE.match(model_id):
+            label = re.sub(r"(\d)-(?=[A-Za-z])", r"\1 ", name) + " (Codex)"
+            found.setdefault(model_id, {"id": model_id, "label": label})
+    return list(found.values()) or None
+
+
+_HANDSHAKE = json.dumps({"type": "control_request", "request_id": "models", "request": {"subtype": "initialize"}})
+
+
+def _list_models(assistant, binary):
+    """Every model an installed assistant offers, or None when it couldn't say."""
+    if assistant == "claude":
+        argv = [binary, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "",
+                "--no-session-persistence"]
+        stdin, parse = _HANDSHAKE + "\n", _claude_models
+    else:
+        argv, stdin, parse = [binary, "debug", "models"], "", _codex_models
+    try:
+        with tempfile.TemporaryDirectory() as folder:
+            done = subprocess.run(argv, input=stdin.encode("utf-8"), capture_output=True, cwd=folder,
+                                  env=child_env(), timeout=_LIST_TIMEOUT, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    return parse(done.stdout.decode("utf-8", "replace"))
+
+
+def refresh_models():
+    """Asks each installed assistant which models it offers, and keeps the answer for next time.
+    True when the models to pick from changed."""
+    before = models()
+    data = dict(_catalog_data())
+    for assistant in ASSISTANTS:
+        binary = find_binary(assistant)
+        listed = _list_models(assistant, binary) if binary else None
+        if listed:
+            data[assistant] = listed
+    try:
+        _save_catalog(data)
+    except OSError:
+        return False
+    return models() != before
 
 
 def set_enabled(assistants, assistant, on):
@@ -144,6 +311,10 @@ def set_enabled(assistants, assistant, on):
 
 
 def model_info(model_id):
+    for assistant in ASSISTANTS:
+        for model in _offered(assistant):
+            if model["id"] == model_id:
+                return model
     for model in MODELS:
         if model["id"] == model_id:
             return model

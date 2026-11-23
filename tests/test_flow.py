@@ -1,5 +1,7 @@
 """The whole path, through the app's service: connect, pick a book, write a card, save and sync."""
 
+import json
+import os
 import shutil
 import sqlite3
 import unittest
@@ -35,6 +37,17 @@ class FlowTest(TempHome):
         self.wait_for_sync()
         self.service.ankiweb_login("tester@example.com", "test-password")
         self.wait_for_sync()
+
+    def test_new_models_replace_older_ones_at_start(self):
+        self.service.update_settings({"meta_model": "claude-fable-5-1"})
+        os.environ["FAKE_AI_MODELS"] = json.dumps({"claude": [{"id": "claude-fable-5-2", "label": "Fable 5.2"},
+                                                              {"id": "claude-fable-5-1", "label": "Fable 5.1"}]})
+        self.addCleanup(os.environ.pop, "FAKE_AI_MODELS", None)
+        self.service.start()
+        self.service._models_thread.join(30)
+        state = self.service.state()
+        self.assertEqual(state["settings"]["meta_model"], "claude-fable-5-2")
+        self.assertEqual([m["label"] for m in state["models"]], ["Fable 5.2", "GPT-6.1 Sol (Codex)"])
 
     def test_companion_folder_is_a_setting(self):
         self.assertFalse(self.service.state()["skill"]["ok"])

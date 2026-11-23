@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fake `codex exec`, writing its answer to the -o file. See _fake.py."""
 
+import json
 import os
 import sys
 
@@ -11,6 +12,12 @@ import _fake  # noqa: E402
 
 if "--version" in sys.argv:
     print(os.environ.get("FAKE_AI_VERSION", "codex-cli 0.160.1"))
+    sys.exit(0)
+
+if sys.argv[1:3] == ["debug", "models"]:
+    listed = [{"slug": m["id"], "display_name": m["label"], "visibility": "list", "priority": n}
+              for n, m in enumerate(_fake.models("codex"))]
+    print(json.dumps({"models": listed + [{"slug": "gpt-hidden", "display_name": "Hidden", "visibility": "hide"}]}))
     sys.exit(0)
 
 prompt = sys.stdin.read()

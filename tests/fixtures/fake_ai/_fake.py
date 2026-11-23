@@ -19,6 +19,7 @@ Pick behaviour with FAKE_AI_MODE, or a marker anywhere in the prompt such as
 FAKE_AI_LOG        append one JSON line per run: tool, argv, cwd, stdin, path
 FAKE_AI_PIDS       write "<own pid> <child pid>" to this file when slow, with a child process running
 FAKE_AI_VERSION    what --version prints
+FAKE_AI_MODELS     JSON {"claude": [{"id", "label"}], "codex": [...]}: the models each fake offers
 """
 
 import json
@@ -30,6 +31,19 @@ import time
 
 MODES = ("valid", "later", "fenced", "malformed", "is_error", "not_logged_in", "exit", "empty", "no_output", "slow",
          "believable", "no_connections")
+
+
+_MODELS = {
+    "claude": [{"id": "claude-haiku-5-5", "label": "Haiku 5.5"}, {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5"},
+               {"id": "claude-opus-5-5", "label": "Opus 5.5"}, {"id": "claude-fable-5-1", "label": "Fable 5.1"}],
+    "codex": [{"id": "gpt-6.1-sol", "label": "GPT-6.1-Sol"}],
+}
+
+
+def models(tool):
+    """The models a fake offers, from FAKE_AI_MODELS or the app's built-in ones."""
+    chosen = json.loads(os.environ.get("FAKE_AI_MODELS") or "{}")
+    return chosen.get(tool, _MODELS[tool])
 
 
 def mode_for(prompt):

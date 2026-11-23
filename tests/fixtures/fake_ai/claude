@@ -14,6 +14,14 @@ if "--version" in sys.argv:
     print(os.environ.get("FAKE_AI_VERSION", "2.1.317 (Claude Code)"))
     sys.exit(0)
 
+if "--input-format" in sys.argv:
+    sys.stdin.read()
+    listed = [{"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)"}]
+    listed += [{"value": m["id"], "resolvedModel": m["id"], "displayName": m["label"]} for m in _fake.models("claude")]
+    print(json.dumps({"type": "control_response", "response": {"subtype": "success", "request_id": "models",
+                                                               "response": {"models": listed}}}))
+    sys.exit(0)
+
 system = sys.argv[sys.argv.index("--system-prompt") + 1] if "--system-prompt" in sys.argv else ""
 user = sys.stdin.read()
 prompt = system + "\n\n" + user

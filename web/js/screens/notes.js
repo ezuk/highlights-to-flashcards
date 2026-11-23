@@ -193,8 +193,9 @@ function SlipBox({ setup }) {
   </details>`;
 }
 
+// Model family for each job, as the start of its id
 const PROVIDER_DEFAULTS = {
-  claude: { ideas: "claude-opus-5-5", links: "claude-opus-5-5", titles: "claude-sonnet-5-5" },
+  claude: { ideas: "claude-opus-", links: "claude-opus-", titles: "claude-sonnet-" },
 };
 
 function AiSection({ setup }) {
@@ -205,7 +206,8 @@ function AiSection({ setup }) {
     const defaults = PROVIDER_DEFAULTS[id] || {};
     const models = {};
     for (const job of setup.jobs) {
-      models[job.id] = choices.some((m) => m.id === defaults[job.id]) ? defaults[job.id] : choices[choices.length - 1].id;
+      const family = defaults[job.id] && choices.find((m) => m.id.startsWith(defaults[job.id]));
+      models[job.id] = (family || choices[choices.length - 1]).id;
     }
     send("PATCH", "/api/notes/settings", { models });
   };

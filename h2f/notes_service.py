@@ -78,7 +78,8 @@ class NotesService:
 
     def _settings(self):
         settings = self._store.get_settings()
-        models = {**DEFAULT_MODELS, **(settings.get("notes_models") or {})}
+        chosen = {**DEFAULT_MODELS, **(settings.get("notes_models") or {})}
+        models = {job: ai.current_model(model_id) for job, model_id in chosen.items()}
         return {"vault": settings.get("notes_vault") or "", "models": models,
                 "prompt": settings.get("notes_prompt") or prompts.STANDARD}
 

@@ -447,6 +447,7 @@ class Service:
         self._syncing = False
         self._sync_lock = threading.Lock()
         self._sync_thread = None
+        self._models_thread = None
         self._source_errors = {}
         self._calibre_cache = None
 
@@ -477,6 +478,8 @@ class Service:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._watch, name="h2f-watcher", daemon=True)
         self._thread.start()
+        self._models_thread = threading.Thread(target=self._refresh_models, name="h2f-models", daemon=True)
+        self._models_thread.start()
         if self._sync_on_start:
             self._start_sync(("readwise", "ankiweb"))
 
@@ -490,6 +493,8 @@ class Service:
             self._refresh_thread.join(wait)
         if self._sync_thread is not None:
             self._sync_thread.join(wait)
+        if self._models_thread is not None:
+            self._models_thread.join(wait)
         with self._jobs_lock:
             self._closing = True
             jobs = list(self._jobs.values())
@@ -751,12 +756,22 @@ class Service:
             raise ServiceError(409, f"{info['name']} isn't installed, or the app can't find it.")
         return model
 
+    def _refresh_models(self):
+        if ai.refresh_models() and not self._stop_event.is_set():
+            self._hub.publish({"topic": SETTINGS, "type": "changed", "keys": ["models"]})
+            self.notes._publish(None, "settings")
+
     def _settle_models(self):
-        """The settings, after moving a model off an assistant that isn't there, if another is."""
+        """The settings, after moving a model to the newest of its family, or off an assistant
+        that isn't there, if another is."""
         settings = self._store.get_settings()
         usable = self._usable_models(settings)
         ids = {model["id"] for model in usable}
-        changes = {key: usable[0]["id"] for key in ("model", "meta_model") if usable and settings[key] not in ids}
+        changes = {}
+        for key in ("model", "meta_model"):
+            if usable and settings[key] not in ids:
+                newer = ai.current_model(settings[key])
+                changes[key] = newer if newer in ids else usable[0]["id"]
         if not changes:
             return settings
         self._store.set_settings(changes)
